@@ -26,8 +26,13 @@ const firebaseConfig = {
   measurementId: "G-Q2CNRK16ET"
 };
 
-// Gemini API Key - Vercel-ზე მუშაობისთვის პირდაპირ ჩაწერილია
-const GEMINI_API_KEY = "AIzaSyAdSzDqKf73a9fzI94UpmeOTJTrnJHfWos";
+/**
+ * ⚠️ მნიშვნელოვანი ინსტრუქცია ⚠️
+ * Canvas გარემოში გასაღები ავტომატურად მოგეწოდებათ.
+ * Vercel-ზე დეპლოისას, ქვემოთ მოცემულ ცარიელ ბრჭყალებში ჩასვით თქვენი API გასაღები:
+ * const GEMINI_API_KEY = "AIzaSyAdSzDqKf73a9fzI94UpmeOTJTrnJHfWos";
+ */
+const GEMINI_API_KEY = ""; 
 
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
@@ -88,7 +93,7 @@ export default function App() {
   const [error, setError] = useState(null);
   const fileInputRef = useRef(null);
 
-  // 1. ავტორიზაცია (Rule 3)
+  // 1. ავტორიზაცია
   useEffect(() => {
     const initAuth = async () => {
       try {
@@ -102,7 +107,7 @@ export default function App() {
           await signInAnonymously(auth);
         }
       } catch (err) {
-        console.error("Auth initialization failed", err);
+        console.error("ავტორიზაციის ხარვეზი", err);
       }
     };
     initAuth();
@@ -113,7 +118,7 @@ export default function App() {
     return () => unsubscribe();
   }, []);
 
-  // 2. მონაცემების სინქრონიზაცია (Rule 1 & 2)
+  // 2. მონაცემების სინქრონიზაცია
   useEffect(() => {
     if (!user) return;
 
@@ -125,7 +130,7 @@ export default function App() {
       const items = s.docs.map(d => ({ id: d.id, ...d.data() }));
       setHistory(items.sort((a,b) => (b.timestamp || 0) - (a.timestamp || 0)));
     }, (err) => {
-      console.error("Firestore update failed", err);
+      console.error("Firestore error", err);
     });
 
     return () => unsubHistory();
@@ -142,58 +147,61 @@ export default function App() {
     return { todayTotal, last7Days };
   }, [history]);
 
-  // 3. მაქსიმალურად გაფართოებული AI პროცესორი - FIXED MODEL AND KEY
+  // 3. გაუმჯობესებული AI პროცესორი - მაქსიმალური სიზუსტე
   const processAI = async (text, base64 = null) => {
     if (!user || (!text && !base64)) return;
     setLoading(true); 
     setError(null);
-    setAiStatus('მიმდინარეობს პროდუქტების სიღრმისეული ანალიზი...');
+    setAiStatus('მიმდინარეობს მონაცემების დამუშავება...');
 
-    const fetchWithRetry = async (retries = 5, delay = 1000) => {
+    const prompt = `Task: You are a professional nutritionist.
+    Input: ${text || "Analyze the attached image."}
+    Objective: Identify each food item, calculate calories for each separately, then sum them up.
+    Output Format: Return ONLY a valid JSON object. Do not include any text before or after the JSON.
+    Structure:
+    {
+      "name": "Meal Name in Georgian",
+      "calories": total_number,
+      "ingredients": ["Item 1 (Quantity) - X kcal", "Item 2 (Quantity) - Y kcal"],
+      "preparation": ["Step 1 of calculation", "Step 2 of sum"],
+      "time": "Estimated time"
+    }
+    Language: Use Georgian for all string values.
+    Be precise with math. Be lenient with typos.`;
+
+    const fetchWithRetry = async (retries = 3, delay = 2000) => {
       try {
-        // ვიყენებთ საჯარო gemini-1.5-flash მოდელს
         const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${GEMINI_API_KEY}`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            contents: [{ parts: [{ text: text || "Identify the products in the list." }, ...(base64 ? [{ inlineData: { mimeType: "image/jpeg", data: base64 } }] : [])] }],
-            systemInstruction: { 
-              parts: [{ text: `შენ ხარ უმაღლესი დონის ქართველი დიეტოლოგი. 
-              ამოცანა: მომხმარებელი მოგაწვდის პროდუქტების სიას (მაგ: 2 ნაჭერი მწვადი, 200გრ პური, მაიონეზი).
-              1. დაშალე სია კომპონენტებად.
-              2. თითოეულს მიანიჭე ზუსტი კალორიულობა მითითებული რაოდენობის მიხედვით.
-              3. მათემატიკურად დააჯამე ყველა კომპონენტის კალორია.
-              
-              დააბრუნე პასუხი მკაცრად JSON ფორმატში:
-              {
-                "name": "კერძის დასახელება",
-                "calories": ჯამური_რიცხვი,
-                "ingredients": ["პროდუქტი 1 (რაოდენობა) - X კკალ", "პროდუქტი 2 (რაოდენობა) - Y კკალ"],
-                "preparation": ["ნაბიჯი 1", "ნაბიჯი 2"],
-                "time": "წუთები"
-              }
-              გამოიყენე მხოლოდ ქართული ენა.` }] 
-            },
-            generationConfig: { 
-              responseMimeType: "application/json"
-            }
+            contents: [{ 
+              parts: [
+                { text: prompt },
+                ...(base64 ? [{ inlineData: { mimeType: "image/jpeg", data: base64 } }] : [])
+              ] 
+            }]
           })
         });
 
         if (!response.ok) {
-          const errData = await response.json().catch(() => ({}));
-          throw new Error(errData.error?.message || `კავშირის შეცდომა ${response.status}`);
+          const errBody = await response.json().catch(() => ({}));
+          throw new Error(errBody.error?.message || `კავშირის შეცდომა: ${response.status}`);
         }
         
         const data = await response.json();
-        if (!data.candidates?.[0]?.content?.parts?.[0]?.text) throw new Error("AI-მ პასუხი ვერ დააგენერირა.");
+        const textResponse = data.candidates?.[0]?.content?.parts?.[0]?.text;
+        
+        if (!textResponse) throw new Error("AI-მ პასუხი ვერ დააგენერირა.");
 
-        return JSON.parse(data.candidates[0].content.parts[0].text);
+        // Clean JSON response (remove markdown code blocks if any)
+        const cleanedJson = textResponse.replace(/```json/g, '').replace(/```/g, '').trim();
+        return JSON.parse(cleanedJson);
       } catch (e) {
         if (retries > 0) {
-          setAiStatus(`ვცდი ხელახლა... (${retries})`);
+          setAiStatus(`კავშირი წყდება... ვცდი ხელახლა (${retries})`);
           await new Promise(r => setTimeout(r, delay));
-          return fetchWithRetry(retries - 1, delay * 2);
+          return fetchWithRetry(retries - 1, delay * 1.5);
         }
         throw e;
       }
@@ -202,12 +210,12 @@ export default function App() {
     try {
       const res = await fetchWithRetry();
       await addDoc(collection(db, 'artifacts', appId, 'users', user.uid, 'history'), { ...res, timestamp: Date.now() });
-      setAiStatus('წარმატებით დამუშავდა!');
+      setAiStatus('წარმატებით დაემატა!');
       setInput('');
       setTimeout(() => setAiStatus(''), 3000);
     } catch (e) { 
       console.error("AI Error:", e);
-      setError(`AI-მ ვერ დაამუშავა: ${e.message}`); 
+      setError(`შეცდომა: ${e.message}. შეამოწმეთ ინტერნეტი ან სცადეთ მოგვიანებით.`); 
     } finally { 
       setLoading(false); 
     }
@@ -215,38 +223,37 @@ export default function App() {
 
   if (loading && !user) return (
     <div className="h-screen flex flex-col items-center justify-center bg-white gap-8 text-emerald-500">
-      <div className="relative">
-        <Loader2 className="animate-spin w-16 h-16 opacity-10" />
-        <Utensils className="w-8 h-8 absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 animate-pulse" />
-      </div>
-      <p className="font-black text-[10px] uppercase tracking-[0.4em] animate-pulse">CalorieHub იტვირთება...</p>
+      <Loader2 className="animate-spin w-12 h-12 opacity-30" />
+      <p className="font-black text-[10px] uppercase tracking-[0.4em] animate-pulse">იტვირთება...</p>
     </div>
   );
 
   return (
     <div className="min-h-screen bg-[#F8FAFC] text-slate-900 max-w-md mx-auto relative flex flex-col font-sans overflow-hidden shadow-2xl border-x border-slate-100">
       
+      {/* Header */}
       <header className="bg-white pt-16 pb-10 px-8 sticky top-0 z-40 border-b border-slate-100 rounded-b-[4rem] shadow-sm">
         <div className="flex justify-between items-center mb-10">
           <div className="flex items-center gap-6">
-            <div className="w-16 h-16 bg-emerald-500 rounded-[1.8rem] flex items-center justify-center text-white shadow-2xl shadow-emerald-100 transform -rotate-3 hover:rotate-0 transition-transform cursor-pointer">
+            <div className="w-16 h-16 bg-emerald-500 rounded-[1.8rem] flex items-center justify-center text-white shadow-2xl shadow-emerald-100 transform -rotate-3 transition-transform">
               <Apple className="w-8 h-8" />
             </div>
             <div>
-               <p className="text-[11px] font-black text-slate-400 uppercase tracking-[0.25em] leading-none mb-2">Smart Dashboard</p>
+               <p className="text-[11px] font-black text-slate-400 uppercase tracking-[0.25em] leading-none mb-2">Health Hub</p>
                <h1 className="text-3xl font-black tracking-tighter text-slate-800">CalorieHub</h1>
             </div>
           </div>
-          <button onClick={() => setIsSettingsOpen(true)} className="p-5 bg-slate-50 rounded-[1.4rem] text-slate-400 active:scale-90 transition-all border border-slate-100/50 hover:text-emerald-600 hover:bg-emerald-50"><Settings className="w-6 h-6" /></button>
+          <button onClick={() => setIsSettingsOpen(true)} className="p-5 bg-slate-50 rounded-[1.4rem] text-slate-400 active:scale-90 transition-all border border-slate-100/50 hover:text-emerald-500"><Settings className="w-6 h-6" /></button>
         </div>
 
+        {/* Progress Card */}
         <div className="bg-slate-900 rounded-[3rem] p-8 text-white shadow-2xl relative overflow-hidden group">
           <div className="flex justify-between items-end mb-6 relative z-10">
             <div>
               <p className="text-[10px] font-bold text-slate-500 uppercase tracking-[0.3em] mb-3">დღევანდელი ჯამი</p>
               <div className="flex items-baseline gap-2">
                 <p className="text-6xl font-black tracking-tighter text-emerald-400">{stats.todayTotal}</p>
-                <p className="text-sm text-slate-500 font-black">/ {dailyGoal}</p>
+                <p className="text-sm text-slate-500 font-bold">/ {dailyGoal}</p>
               </div>
             </div>
             <div className="text-right">
@@ -257,19 +264,22 @@ export default function App() {
                <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest">მიზანი</p>
             </div>
           </div>
-          <div className="h-4 w-full bg-slate-800/80 rounded-full overflow-hidden relative z-10 border border-slate-700/50 p-1">
+          <div className="h-4 w-full bg-slate-800 rounded-full overflow-hidden relative z-10 border border-slate-700/50 p-1">
             <div 
-              className={`h-full transition-all duration-1000 ease-out rounded-full ${stats.todayTotal > dailyGoal ? 'bg-orange-500 shadow-[0_0_20px_rgba(249,115,22,0.6)]' : 'bg-emerald-500 shadow-[0_0_25px_rgba(16,185,129,0.5)]'}`} 
+              className={`h-full transition-all duration-1000 ease-out rounded-full ${stats.todayTotal > dailyGoal ? 'bg-orange-500 shadow-[0_0_15px_rgba(249,115,22,0.6)]' : 'bg-emerald-500 shadow-[0_0_20px_rgba(16,185,129,0.5)]'}`} 
               style={{ width: `${Math.min((stats.todayTotal / dailyGoal) * 100, 100)}%` }} 
             />
           </div>
+          <div className="absolute top-0 right-0 w-48 h-48 bg-emerald-500/5 rounded-full blur-[80px] -mr-20 -mt-20 group-hover:bg-emerald-500/10 transition-all duration-1000" />
         </div>
       </header>
 
+      {/* Main Content Area */}
       <main className="flex-1 px-8 pt-10 pb-40 overflow-y-auto scrollbar-hide overscroll-contain">
         
         {activeTab === 'tracker' && (
           <div className="space-y-12 animate-in fade-in slide-in-from-bottom-8 duration-700">
+            {/* Input Section */}
             <div className="bg-white rounded-[3.5rem] p-10 border border-slate-100 shadow-sm relative overflow-hidden group">
               <div className="flex items-center gap-3 mb-8">
                  <div className="w-10 h-10 bg-emerald-50 rounded-2xl flex items-center justify-center shadow-inner group-hover:scale-110 transition-transform"><Zap className="w-5 h-5 text-emerald-600" /></div>
@@ -287,8 +297,9 @@ export default function App() {
                   disabled={loading || !input.trim()} 
                   className="flex-[3] bg-slate-900 text-white font-black py-6 rounded-[2rem] flex flex-col items-center justify-center gap-2 shadow-2xl active:scale-95 transition-all disabled:opacity-50 group/btn overflow-hidden"
                 >
+                  <div className="absolute inset-0 bg-emerald-500/10 translate-y-full group-active/btn:translate-y-0 transition-transform" />
                   {loading ? <Loader2 className="animate-spin w-6 h-6" /> : <Calculator className="w-6 h-6" />}
-                  <span className="text-[11px] uppercase tracking-[0.25em]">დაანგარიშება</span>
+                  <span className="text-[11px] uppercase tracking-[0.25em]">ანალიზი</span>
                 </button>
                 <button 
                   onClick={() => fileInputRef.current.click()} 
@@ -314,10 +325,11 @@ export default function App() {
               )}
             </div>
 
+            {/* History Section */}
             <div className="space-y-6">
               <div className="flex justify-between items-center px-4">
                 <h3 className="text-[11px] font-black text-slate-400 uppercase tracking-[0.25em] flex items-center gap-3"><History className="w-4 h-4"/> დღევანდელი ისტორია</h3>
-                <span className="text-[10px] font-black text-emerald-500 bg-emerald-50 px-4 py-1.5 rounded-full uppercase tracking-widest">{history.filter(h => new Date(h.timestamp).toDateString() === new Date().toDateString()).length} კვება</span>
+                <span className="text-[10px] font-black text-emerald-500 bg-emerald-50 px-4 py-1.5 rounded-full uppercase tracking-widest border border-emerald-100">{history.filter(h => new Date(h.timestamp).toDateString() === new Date().toDateString()).length} კვება</span>
               </div>
               
               {history.filter(h => new Date(h.timestamp).toDateString() === new Date().toDateString()).length === 0 ? (
@@ -332,7 +344,7 @@ export default function App() {
                       <div className="w-16 h-16 bg-slate-50 rounded-[1.4rem] flex items-center justify-center text-slate-400 font-black text-xl border border-slate-100 group-hover:bg-emerald-50 group-hover:text-emerald-500 transition-all">{item.name?.charAt(0)}</div>
                       <div>
                         <p className="font-bold text-slate-800 text-lg leading-tight line-clamp-1">{item.name}</p>
-                        <p className="text-[12px] text-slate-400 mt-2 flex items-center gap-2 font-medium"><Clock className="w-3.5 h-3.5" /> {new Date(item.timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</p>
+                        <p className="text-[12px] text-slate-400 mt-2 flex items-center gap-2 font-medium tracking-tight"><Clock className="w-3.5 h-3.5" /> {new Date(item.timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</p>
                       </div>
                     </div>
                     <div className="flex items-center gap-6">
@@ -349,6 +361,7 @@ export default function App() {
           </div>
         )}
 
+        {/* Recipes Hub View */}
         {activeTab === 'recipes' && (
           <div className="space-y-12 animate-in fade-in duration-700">
             <div className="bg-white p-8 rounded-[3.2rem] shadow-sm border border-slate-100">
@@ -365,6 +378,7 @@ export default function App() {
           </div>
         )}
 
+        {/* Stats View */}
         {activeTab === 'stats' && (
           <div className="space-y-12 animate-in fade-in duration-700">
             <div className="bg-slate-900 rounded-[3.5rem] p-12 text-white shadow-2xl relative overflow-hidden">
@@ -373,7 +387,7 @@ export default function App() {
                 {stats.last7Days.map((d, i) => (
                   <div key={i} className="flex-1 flex flex-col items-center gap-5">
                     <div className="w-full bg-slate-800/80 rounded-full relative h-40 overflow-hidden border border-slate-700/40 p-1">
-                      <div className="absolute bottom-0 left-0 right-0 bg-emerald-500 rounded-full transition-all duration-1000 ease-out" style={{ height: `${Math.min((d.total / dailyGoal) * 100, 100)}%` }} />
+                      <div className="absolute bottom-0 left-0 right-0 bg-emerald-500 rounded-full transition-all duration-1000 ease-out shadow-[0_0_25px_rgba(16,185,129,0.4)]" style={{ height: `${Math.min((d.total / dailyGoal) * 100, 100)}%` }} />
                     </div>
                     <span className="text-[11px] font-black text-slate-500 uppercase tracking-tighter">{d.day}</span>
                   </div>
@@ -397,6 +411,7 @@ export default function App() {
         )}
       </main>
 
+      {/* Navigation */}
       <nav className="fixed bottom-12 left-1/2 -translate-x-1/2 w-[94%] max-w-[420px] bg-white/95 backdrop-blur-3xl border border-slate-100 rounded-[3.5rem] p-3 flex justify-between shadow-2xl z-50">
         {[ 
           { id: 'tracker', icon: Utensils, label: 'დღიური' }, 
@@ -410,6 +425,7 @@ export default function App() {
         ))}
       </nav>
 
+      {/* Detailed Modal */}
       {selectedRecipe && (
         <div className="fixed inset-0 z-[100] bg-white overflow-y-auto animate-in slide-in-from-bottom duration-700 ease-out">
           <div className="relative h-[480px]">
