@@ -25,7 +25,8 @@ const firebaseConfig = {
   measurementId: "G-Q2CNRK16ET"
 };
 
-const GEMINI_API_KEY = "AIzaSyAdSzDqKf73a9fzI94UpmeOTJTrnJHfWos";
+// მნიშვნელოვანი: სისტემა გასაღებს ავტომატურად აწვდის, ამიტომ ვტოვებთ ცარიელს
+const GEMINI_API_KEY = "";
 
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
@@ -87,10 +88,14 @@ export default function App() {
 
   useEffect(() => {
     const initAuth = async () => {
-      if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
-        await signInWithCustomToken(auth, __initial_auth_token);
-      } else {
-        await signInAnonymously(auth);
+      try {
+        if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+          await signInWithCustomToken(auth, __initial_auth_token);
+        } else {
+          await signInAnonymously(auth);
+        }
+      } catch (err) {
+        console.error("Auth error:", err);
       }
     };
     initAuth();
@@ -131,17 +136,28 @@ export default function App() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          contents: [{ parts: [{ text: text || "Identify the food." }, ...(base64 ? [{ inlineData: { mimeType: "image/jpeg", data: base64 } }] : [])] }],
-          systemInstruction: { parts: [{ text: "Experts Dietitian. You will be given a list of food items or a single dish. Calculate the TOTAL calories for all items combined. Identify the dish name. Return JSON ONLY: { \"name\": \"კერძის სახელი\", \"calories\": ჯამური_რიცხვი, \"ingredients\": [\"დეტალური სია რაოდენობებით\"], \"preparation\": [\"მომზადების ნაბიჯები თუ საჭიროა\"], \"time\": \"წუთები\" }. Use Georgian language." }] },
+          contents: [{ parts: [{ text: text || "Identify the food in the image or text." }, ...(base64 ? [{ inlineData: { mimeType: "image/jpeg", data: base64 } }] : [])] }],
+          systemInstruction: { parts: [{ text: "Experts Dietitian. You will be given a list of food items or a single dish. Calculate the TOTAL calories for all items combined. Identify the dish name. Return JSON ONLY: { \"name\": \"კერძის სახელი\", \"calories\": ჯამური_რიცხვი, \"ingredients\": [\"დეტალური სია რაოდენობებით\"], \"preparation\": [\"მომზადების ნაბიჯები თუ საჭიროა\"], \"time\": \"წუთები\" }. Use Georgian language for values." }] },
           generationConfig: { responseMimeType: "application/json" }
         })
       });
       const data = await response.json();
-      const res = JSON.parse(data.candidates[0].content.parts[0].text);
+      
+      if (!data.candidates || data.candidates.length === 0) {
+        throw new Error("AI ვერ პოულობს საკვებს.");
+      }
+
+      const resText = data.candidates[0].content.parts[0].text;
+      const res = JSON.parse(resText);
+      
       await addDoc(collection(db, 'artifacts', appId, 'users', user.uid, 'history'), { ...res, timestamp: Date.now() });
       setInput('');
-    } catch (e) { setError("AI-მ ვერ დაამუშავა ინფორმაცია. სცადეთ სხვაგვარად ჩაწერა."); }
-    finally { setLoading(false); }
+    } catch (e) { 
+      console.error("AI Error:", e);
+      setError("AI-მ ვერ ამოიცნო საკვები. სცადეთ სხვაგვარად ჩაწერა ან უკეთესი ფოტო."); 
+    } finally { 
+      setLoading(false); 
+    }
   };
 
   if (loading && !user) return <div className="h-screen flex items-center justify-center bg-slate-50 text-emerald-500"><Loader2 className="animate-spin" /></div>;
