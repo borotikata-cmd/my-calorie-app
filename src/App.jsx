@@ -6,12 +6,12 @@ import {
 } from 'firebase/firestore';
 import { getAuth, signInAnonymously, onAuthStateChanged, signInWithCustomToken } from 'firebase/auth';
 import { 
-  Utensils, Camera, Calculator, Trash2, Plus, 
+  Utensils, Camera, Trash2, Plus, 
   Settings, History, BarChart3, BookOpen, 
-  Loader2, CheckCircle2, AlertCircle, Search, 
-  Clock, Flame, Apple, Sparkles, ChefHat, 
+  Loader2, AlertCircle, Search, 
+  Clock, Flame, Apple, ChefHat, 
   DollarSign, ArrowLeft, ListChecks, Image as ImageIcon,
-  ChevronRight, TrendingUp, Zap, Calendar
+  TrendingUp, Zap
 } from 'lucide-react';
 
 // --- ✅ Firebase კონფიგურაცია ✅ ---
@@ -25,7 +25,6 @@ const firebaseConfig = {
   measurementId: "G-Q2CNRK16ET"
 };
 
-// შენი პირადი Gemini API გასაღები
 const GEMINI_API_KEY = "AIzaSyAdSzDqKf73a9fzI94UpmeOTJTrnJHfWos";
 
 const app = initializeApp(firebaseConfig);
@@ -36,8 +35,7 @@ const appId = typeof __app_id !== 'undefined' ? __app_id : 'calorie-tracker-pro-
 // --- 🥗 ლოკალური რეცეპტების ბაზა ---
 const LOCAL_RECIPES = [
   { id: 'r1', name: "ხინკალი (დიეტური, 1 ცალი)", calories: 75, time: "40 წთ", cuisine: "ქართული", budget: "დაბალი", ingredients: ["საქონლის ხორცი", "ფქვილი", "ხახვი"], preparation: ["მოზილეთ ცომი", "მოამზადეთ ფარში", "მოხარშეთ"], image: "https://images.unsplash.com/photo-1599307734173-97992c68600d?w=500" },
-  { id: 'r2', name: "ქათმის სალათი მაწვნით", calories: 220, time: "15 წთ", cuisine: "ჯანსაღი", budget: "საშუალო", ingredients: ["ქათმის ფილე", "მაწონი", "მწვანილი"], preparation: ["მოხარშეთ ფილე", "დაჭერით", "შეურიეთ მაწონს"], image: "https://images.unsplash.com/photo-1512621776951-a57141f2eefd?w=500" },
-  { id: 'r3', name: "ორაგული ბოსტნეულით", calories: 350, time: "25 წთ", cuisine: "ევროპული", budget: "მაღალი", ingredients: ["ორაგული", "ლიმონი", "ბროკოლი", "ზეითუნის ზეთი"], preparation: ["გაასუფთავეთ ორაგული", "მოხარშეთ ბროკოლი", "შეწვით გრილზე"], image: "https://images.unsplash.com/photo-1467003909585-2f8a72700288?w=500" }
+  { id: 'r2', name: "ქათმის სალათი მაწვნით", calories: 220, time: "15 წთ", cuisine: "ჯანსაღი", budget: "საშუალო", ingredients: ["ქათმის ფილე", "მაწონი", "მწვანილი"], preparation: ["მოხარშეთ ფილე", "დაჭერით", "შეურიეთ მაწონს"], image: "https://images.unsplash.com/photo-1512621776951-a57141f2eefd?w=500" }
 ];
 
 const RecipeCard = memo(({ recipe, onSelect, onAdd }) => (
@@ -129,12 +127,12 @@ export default function App() {
     if (!user || (!text && !base64)) return;
     setLoading(true); setError(null);
     try {
-      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${GEMINI_API_KEY}`, {
+      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${GEMINI_API_KEY}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          contents: [{ parts: [{ text: text || "Identify the food in the image or text." }, ...(base64 ? [{ inlineData: { mimeType: "image/jpeg", data: base64 } }] : [])] }],
-          systemInstruction: { parts: [{ text: "Experts Dietitian. Return JSON ONLY: { \"name\": \"საკვების სახელი\", \"calories\": რიცხვი, \"ingredients\": [\"სია\"], \"preparation\": [\"ნაბიჯები\"], \"time\": \"წუთები\" }. გამოიყენე ქართული ენა." }] },
+          contents: [{ parts: [{ text: text || "Identify the food." }, ...(base64 ? [{ inlineData: { mimeType: "image/jpeg", data: base64 } }] : [])] }],
+          systemInstruction: { parts: [{ text: "Experts Dietitian. You will be given a list of food items or a single dish. Calculate the TOTAL calories for all items combined. Identify the dish name. Return JSON ONLY: { \"name\": \"კერძის სახელი\", \"calories\": ჯამური_რიცხვი, \"ingredients\": [\"დეტალური სია რაოდენობებით\"], \"preparation\": [\"მომზადების ნაბიჯები თუ საჭიროა\"], \"time\": \"წუთები\" }. Use Georgian language." }] },
           generationConfig: { responseMimeType: "application/json" }
         })
       });
@@ -142,7 +140,7 @@ export default function App() {
       const res = JSON.parse(data.candidates[0].content.parts[0].text);
       await addDoc(collection(db, 'artifacts', appId, 'users', user.uid, 'history'), { ...res, timestamp: Date.now() });
       setInput('');
-    } catch (e) { setError("AI-მ ვერ ამოიცნო საკვები. სცადეთ სხვა ფოტო."); }
+    } catch (e) { setError("AI-მ ვერ დაამუშავა ინფორმაცია. სცადეთ სხვაგვარად ჩაწერა."); }
     finally { setLoading(false); }
   };
 
@@ -181,12 +179,16 @@ export default function App() {
       {/* Main Content Area */}
       <main className="flex-1 px-6 pt-8 pb-32 overflow-y-auto scrollbar-hide">
         
-        {/* TRACKER VIEW */}
         {activeTab === 'tracker' && (
           <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4">
             <div className="bg-white rounded-[2.5rem] p-7 border border-slate-100 shadow-sm">
               <div className="flex items-center gap-2 mb-5"><Zap className="w-4 h-4 text-emerald-500" /><h3 className="text-xs font-black text-slate-400 uppercase tracking-widest">რა მიირთვით?</h3></div>
-              <textarea value={input} onChange={(e) => setInput(e.target.value)} placeholder="მაგ: 1 ხინკალი ან გადაუღეთ ფოტო..." className="w-full p-5 bg-slate-50 border-none rounded-[1.8rem] focus:ring-2 focus:ring-emerald-500/10 text-sm min-h-[110px] outline-none placeholder:text-slate-300 resize-none" />
+              <textarea 
+                value={input} 
+                onChange={(e) => setInput(e.target.value)} 
+                placeholder="მაგ: 2 ნაჭერი მწვადი, 200გრ პური, 1 კოვზი მაიონეზი..." 
+                className="w-full p-5 bg-slate-50 border-none rounded-[1.8rem] focus:ring-2 focus:ring-emerald-500/10 text-sm min-h-[110px] outline-none placeholder:text-slate-300 resize-none font-medium leading-relaxed" 
+              />
               <div className="flex gap-3 mt-4">
                 <button onClick={() => processAI(input)} disabled={loading || !input.trim()} className="flex-[2] bg-slate-900 text-white font-bold py-4.5 rounded-2xl flex items-center justify-center gap-2 shadow-lg active:scale-95 transition-all">
                   {loading ? <Loader2 className="animate-spin w-4 h-4" /> : <Plus className="w-4 h-4" />} დათვლა
@@ -220,7 +222,6 @@ export default function App() {
           </div>
         )}
 
-        {/* HUB VIEW */}
         {activeTab === 'recipes' && (
           <div className="space-y-8 animate-in fade-in">
             <div className="bg-white p-6 rounded-[2.5rem] shadow-sm border border-slate-100">
@@ -237,7 +238,6 @@ export default function App() {
           </div>
         )}
 
-        {/* PROGRESS VIEW */}
         {activeTab === 'stats' && (
           <div className="space-y-8 animate-in fade-in">
             <div className="bg-slate-900 rounded-[2.5rem] p-8 text-white shadow-2xl relative overflow-hidden">
