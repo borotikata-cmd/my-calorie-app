@@ -25,7 +25,7 @@ const firebaseConfig = {
   measurementId: "G-Q2CNRK16ET"
 };
 
-// მნიშვნელოვანი: სისტემა გასაღებს ავტომატურად აწვდის, ამიტომ ვტოვებთ ცარიელს
+// სისტემის API გასაღები ავტომატურად მიეწოდება გარემოს მიერ
 const GEMINI_API_KEY = "";
 
 const app = initializeApp(firebaseConfig);
@@ -36,7 +36,8 @@ const appId = typeof __app_id !== 'undefined' ? __app_id : 'calorie-tracker-pro-
 // --- 🥗 ლოკალური რეცეპტების ბაზა ---
 const LOCAL_RECIPES = [
   { id: 'r1', name: "ხინკალი (დიეტური, 1 ცალი)", calories: 75, time: "40 წთ", cuisine: "ქართული", budget: "დაბალი", ingredients: ["საქონლის ხორცი", "ფქვილი", "ხახვი"], preparation: ["მოზილეთ ცომი", "მოამზადეთ ფარში", "მოხარშეთ"], image: "https://images.unsplash.com/photo-1599307734173-97992c68600d?w=500" },
-  { id: 'r2', name: "ქათმის სალათი მაწვნით", calories: 220, time: "15 წთ", cuisine: "ჯანსაღი", budget: "საშუალო", ingredients: ["ქათმის ფილე", "მაწონი", "მწვანილი"], preparation: ["მოხარშეთ ფილე", "დაჭერით", "შეურიეთ მაწონს"], image: "https://images.unsplash.com/photo-1512621776951-a57141f2eefd?w=500" }
+  { id: 'r2', name: "ქათმის სასალათი მაწვნით", calories: 220, time: "15 წთ", cuisine: "ჯანსაღი", budget: "საშუალო", ingredients: ["ქათმის ფილე", "მაწონი", "მწვანილი"], preparation: ["მოხარშეთ ფილე", "დაჭერით", "შეურიეთ მაწონს"], image: "https://images.unsplash.com/photo-1512621776951-a57141f2eefd?w=500" },
+  { id: 'r3', name: "ორაგული ბოსტნეულით", calories: 350, time: "25 წთ", cuisine: "ევროპული", budget: "მაღალი", ingredients: ["ორაგული", "ლიმონი", "ბროკოლი", "ზეითუნის ზეთი"], preparation: ["გაასუფთავეთ ორაგული", "მოხარშეთ ბროკოლი", "შეწვით გრილზე"], image: "https://images.unsplash.com/photo-1467003909585-2f8a72700288?w=500" }
 ];
 
 const RecipeCard = memo(({ recipe, onSelect, onAdd }) => (
@@ -86,16 +87,22 @@ export default function App() {
   const [error, setError] = useState(null);
   const fileInputRef = useRef(null);
 
+  // 1. ავტორიზაციის მართვა - გამოსწორებული ტოკენის შეცდომა
   useEffect(() => {
     const initAuth = async () => {
       try {
         if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
-          await signInWithCustomToken(auth, __initial_auth_token);
+          try {
+            await signInWithCustomToken(auth, __initial_auth_token);
+          } catch (tokenErr) {
+            console.warn("Token mismatch or error, falling back to anonymous auth.");
+            await signInAnonymously(auth);
+          }
         } else {
           await signInAnonymously(auth);
         }
       } catch (err) {
-        console.error("Auth error:", err);
+        console.error("Auth initialization failed:", err);
       }
     };
     initAuth();
@@ -103,8 +110,10 @@ export default function App() {
     return () => unsubscribe();
   }, []);
 
+  // 2. Firestore მონაცემების სინქრონიზაცია (Rule 3 - მხოლოდ ავტორიზაციის შემდეგ)
   useEffect(() => {
     if (!user) return;
+
     const profileRef = doc(db, 'artifacts', appId, 'users', user.uid, 'settings', 'profile');
     getDoc(profileRef).then(s => s.exists() && setDailyGoal(s.data().dailyGoal || 2000));
 
@@ -113,7 +122,11 @@ export default function App() {
       const items = s.docs.map(d => ({ id: d.id, ...d.data() }));
       setHistory(items.sort((a,b) => (b.timestamp || 0) - (a.timestamp || 0)));
       setLoading(false);
-    }, () => setError("კავშირის პრობლემა"));
+    }, (err) => {
+      console.error("Firestore error:", err);
+      setError("მონაცემების წაკითხვის შეცდომა.");
+    });
+
     return () => unsubHistory();
   }, [user]);
 
@@ -137,7 +150,7 @@ export default function App() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           contents: [{ parts: [{ text: text || "Identify the food." }, ...(base64 ? [{ inlineData: { mimeType: "image/jpeg", data: base64 } }] : [])] }],
-          systemInstruction: { parts: [{ text: "შენ ხარ პროფესიონალი ქართველი დიეტოლოგი. იყავი მაქსიმალურად მიმტევებელი შეცდომების მიმართ (typos). თუ მომხმარებელმა სიტყვა არასწორად დაწერა, მიხვდი რა იგულისხმა. დაითვალე ჯამური კალორიები. დააბრუნე JSON ფორმატში: { \"name\": \"კერძის სახელი\", \"calories\": ჯამური_კალორია_რიცხვი, \"ingredients\": [\"დეტალური სია რაოდენობებით\"], \"preparation\": [\"ნაბიჯები თუ საჭიროა\"], \"time\": \"მომზადების დრო\" }. გამოიყენე მხოლოდ ქართული ენა პასუხებისთვის." }] },
+          systemInstruction: { parts: [{ text: "Experts Dietitian. You will be given a list of food items or a single dish. Calculate the TOTAL calories for all items combined. Identify the dish name. Return JSON ONLY: { \"name\": \"კერძის სახელი\", \"calories\": ჯამური_რიცხვი, \"ingredients\": [\"დეტალური სია რაოდენობებით\"], \"preparation\": [\"ნაბიჯები თუ საჭიროა\"], \"time\": \"წუთები\" }. Use Georgian language for values. Be lenient with typos." }] },
           generationConfig: { responseMimeType: "application/json" }
         })
       });
@@ -148,17 +161,14 @@ export default function App() {
       }
 
       let resText = data.candidates[0].content.parts[0].text;
-      
-      // JSON-ის გასუფთავება (ზოგჯერ AI ამატებს ```json ბლოკებს)
       resText = resText.replace(/```json/g, '').replace(/```/g, '').trim();
-      
       const res = JSON.parse(resText);
       
       await addDoc(collection(db, 'artifacts', appId, 'users', user.uid, 'history'), { ...res, timestamp: Date.now() });
       setInput('');
     } catch (e) { 
       console.error("AI Error:", e);
-      setError("AI-მ ვერ ამოიცნო საკვები. სცადეთ სხვაგვარად ჩაწერა ან უკეთესი ფოტო."); 
+      setError("AI-მ ვერ ამოიცნო საკვები. სცადეთ სხვაგვარად ჩაწერა."); 
     } finally { 
       setLoading(false); 
     }
@@ -196,7 +206,7 @@ export default function App() {
         </div>
       </header>
 
-      {/* Main Content Area */}
+      {/* Main Content */}
       <main className="flex-1 px-6 pt-8 pb-32 overflow-y-auto scrollbar-hide">
         
         {activeTab === 'tracker' && (
