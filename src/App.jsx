@@ -87,7 +87,7 @@ export default function App() {
   const [error, setError] = useState(null);
   const fileInputRef = useRef(null);
 
-  // 1. ავტორიზაციის მართვა - Token Error Fix
+  // 1. ავტორიზაციის მართვა
   useEffect(() => {
     const initAuth = async () => {
       try {
@@ -95,7 +95,6 @@ export default function App() {
           try {
             await signInWithCustomToken(auth, __initial_auth_token);
           } catch (tokenErr) {
-            console.warn("Custom token mismatch, falling back to anonymous.");
             await signInAnonymously(auth);
           }
         } else {
@@ -123,7 +122,6 @@ export default function App() {
       setHistory(items.sort((a,b) => (b.timestamp || 0) - (a.timestamp || 0)));
       setLoading(false);
     }, (err) => {
-      console.error("Firestore error:", err);
       setError("მონაცემების წაკითხვის შეცდომა.");
     });
 
@@ -141,7 +139,7 @@ export default function App() {
     return { todayTotal, last7Days };
   }, [history]);
 
-  // 3. AI პროცესორი - მაქსიმალური მოქნილობა შეცდომების მიმართ
+  // 3. AI პროცესორი - მათემატიკური სიზუსტის გაუმჯობესება
   const processAI = async (text, base64 = null) => {
     if (!user || (!text && !base64)) return;
     setLoading(true); setError(null);
@@ -154,7 +152,15 @@ export default function App() {
           body: JSON.stringify({
             contents: [{ parts: [{ text: text || "Identify the food in the image or text." }, ...(base64 ? [{ inlineData: { mimeType: "image/jpeg", data: base64 } }] : [])] }],
             systemInstruction: { 
-              parts: [{ text: "შენ ხარ ექსპერტი დიეტოლოგი. დავალება: მომხმარებელი მოგაწვდის საკვების ჩამონათვალს (შესაძლოა ბევრი გრამატიკული შეცდომით ან არასწორი დასახელებით). შენი მოვალეობაა მიხვდე რა იგულისხმება, დაითვალო თითოეულის კალორია და შეაჯამო. დააბრუნე JSON: { \"name\": \"კერძის დასახელება\", \"calories\": ჯამური_რიცხვი, \"ingredients\": [\"სია რაოდენობებით\"], \"preparation\": [\"ნაბიჯები\"], \"time\": \"წუთები\" }. პასუხი უნდა იყოს მხოლოდ ქართულად." }] 
+              parts: [{ text: `შენ ხარ კვების ზუსტი კალკულატორი და დიეტოლოგი. 
+              დავალება: 
+              1. მომხმარებელი მოგაწვდის პროდუქტების ჩამონათვალს (მაგ: 200გრ ხორცი, 100გრ პური).
+              2. შენ უნდა დაითვალო თითოეული პროდუქტის კალორია ცალ-ცალკე მითითებული რაოდენობის მიხედვით.
+              3. მათემატიკური სიზუსტით შეაჯამე ყველა ეს კალორია.
+              4. "ingredients" მასივში თითოეულ ელემენტს აუცილებლად მიუწერე თავისი კალორია (მაგ: "200გრ ღორის მწვადი - 520 კკალ").
+              5. დააბრუნე პასუხი მხოლოდ JSON ფორმატში: 
+              { "name": "კერძის დასახელება", "calories": ჯამური_მათემატიკური_რიცხვი, "ingredients": ["სია კალორიებით"], "preparation": ["ნაბიჯები"], "time": "წუთები" }.
+              იყავი მიმტევებელი შეცდომების მიმართ, მაგრამ მკაცრი გამოთვლებში. გამოიყენე მხოლოდ ქართული ენა.` }] 
             },
             generationConfig: { responseMimeType: "application/json" }
           })
@@ -183,7 +189,7 @@ export default function App() {
       setInput('');
     } catch (e) { 
       console.error("AI Error:", e);
-      setError("AI-მ ვერ ამოიცნო საკვები. სცადეთ უფრო მკაფიოდ ჩაწერა."); 
+      setError("AI-მ ვერ დაამუშავა ინფორმაცია. სცადეთ უფრო მკაფიოდ ჩაწერა."); 
     } finally { 
       setLoading(false); 
     }
