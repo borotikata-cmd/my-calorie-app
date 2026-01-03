@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="ka">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+    
+    <!-- 📱 მობილური ოპტიმიზაცია (რომ აპივით გამოიყურებოდეს) -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    
+    <title>კვების ჰაბი</title>
+    
+    <!-- 🎨 Tailwind CSS (რომ დიზაინი ამუშავდეს) -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <style>
+      /* ბრაუზერის სტანდარტული ჩარჩოების მოცილება */
+      body {
+        margin: 0;
+        padding: 0;
+        overflow-x: hidden;
+        -webkit-tap-highlight-color: transparent;
+        background-color: #FBFDFF;
+      }
+      
+      /* ტელეფონის ნოთჩისთვის (Safe Area) */
+      .safe-top { padding-top: env(safe-area-inset-top); }
+      .safe-bottom { padding-bottom: env(safe-area-inset-bottom); }
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
+    
+    <!-- 🔗 კავშირი მთავარ კოდთან -->
+    <script type="module" src="/src/main.jsx"></script>
+  </body>
+</html>
