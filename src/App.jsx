@@ -25,9 +25,8 @@ const firebaseConfig = {
   measurementId: "G-Q2CNRK16ET"
 };
 
-// სისტემის API გასაღები ავტომატურად მიეწოდება გარემოს მიერ. 
-// Vercel-ზე დეპლოისას აქ ჩასვით თქვენი პირადი API Key.
-const GEMINI_API_KEY = "";
+// Gemini API გასაღები - პირდაპირ მითითებული თავსებადობისთვის
+const GEMINI_API_KEY = "AIzaSyAdSzDqKf73a9fzI94UpmeOTJTrnJHfWos";
 
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
@@ -88,7 +87,7 @@ export default function App() {
   const [error, setError] = useState(null);
   const fileInputRef = useRef(null);
 
-  // 1. ავტორიზაციის მართვა
+  // 1. ავტორიზაციის მართვა - Token Error Fix
   useEffect(() => {
     const initAuth = async () => {
       try {
@@ -96,6 +95,7 @@ export default function App() {
           try {
             await signInWithCustomToken(auth, __initial_auth_token);
           } catch (tokenErr) {
+            console.warn("Custom token mismatch, falling back to anonymous.");
             await signInAnonymously(auth);
           }
         } else {
@@ -123,6 +123,7 @@ export default function App() {
       setHistory(items.sort((a,b) => (b.timestamp || 0) - (a.timestamp || 0)));
       setLoading(false);
     }, (err) => {
+      console.error("Firestore error:", err);
       setError("მონაცემების წაკითხვის შეცდომა.");
     });
 
@@ -140,29 +141,29 @@ export default function App() {
     return { todayTotal, last7Days };
   }, [history]);
 
-  // 3. AI პროცესორი გამოსწორებული ლოგიკით და Retry მექანიზმით
+  // 3. AI პროცესორი - მაქსიმალური მოქნილობა შეცდომების მიმართ
   const processAI = async (text, base64 = null) => {
     if (!user || (!text && !base64)) return;
     setLoading(true); setError(null);
 
-    const fetchWithRetry = async (retries = 5, delay = 1000) => {
+    const fetchWithRetry = async (retries = 3, delay = 1000) => {
       try {
         const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${GEMINI_API_KEY}`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            contents: [{ parts: [{ text: text || "Identify the food." }, ...(base64 ? [{ inlineData: { mimeType: "image/jpeg", data: base64 } }] : [])] }],
+            contents: [{ parts: [{ text: text || "Identify the food in the image or text." }, ...(base64 ? [{ inlineData: { mimeType: "image/jpeg", data: base64 } }] : [])] }],
             systemInstruction: { 
-              parts: [{ text: "შენ ხარ პროფესიონალი ქართველი დიეტოლოგი. დავალება: მომხმარებელმა შეიძლება მოგაწოდოს პროდუქტების სია (მაგ: 2 ნაჭერი ხორცი, პური, მაიონეზი). შენ უნდა დაითვალო თითოეულის კალორია და დააბრუნო მათი ჯამი. იყავი მაქსიმალურად მიმტევებელი შეცდომების (typos) მიმართ. დააბრუნე პასუხი მხოლოდ JSON ფორმატში: { \"name\": \"კერძის_სახელი\", \"calories\": ჯამური_რიცხვი, \"ingredients\": [\"დეტალური_სია\"], \"preparation\": [\"ნაბიჯები\"], \"time\": \"წუთები\" }. გამოიყენე მხოლოდ ქართული ენა." }] 
+              parts: [{ text: "შენ ხარ ექსპერტი დიეტოლოგი. დავალება: მომხმარებელი მოგაწვდის საკვების ჩამონათვალს (შესაძლოა ბევრი გრამატიკული შეცდომით ან არასწორი დასახელებით). შენი მოვალეობაა მიხვდე რა იგულისხმება, დაითვალო თითოეულის კალორია და შეაჯამო. დააბრუნე JSON: { \"name\": \"კერძის დასახელება\", \"calories\": ჯამური_რიცხვი, \"ingredients\": [\"სია რაოდენობებით\"], \"preparation\": [\"ნაბიჯები\"], \"time\": \"წუთები\" }. პასუხი უნდა იყოს მხოლოდ ქართულად." }] 
             },
             generationConfig: { responseMimeType: "application/json" }
           })
         });
 
-        if (!response.ok) throw new Error("Network error");
+        if (!response.ok) throw new Error("API Connection Failed");
         
         const data = await response.json();
-        if (!data.candidates?.[0]?.content?.parts?.[0]?.text) throw new Error("Invalid response");
+        if (!data.candidates?.[0]?.content?.parts?.[0]?.text) throw new Error("AI could not identify food");
 
         let resText = data.candidates[0].content.parts[0].text;
         resText = resText.replace(/```json/g, '').replace(/```/g, '').trim();
@@ -181,8 +182,8 @@ export default function App() {
       await addDoc(collection(db, 'artifacts', appId, 'users', user.uid, 'history'), { ...res, timestamp: Date.now() });
       setInput('');
     } catch (e) { 
-      console.error("AI final error:", e);
-      setError("AI-მ ვერ დაამუშავა ინფორმაცია. სცადეთ მოგვიანებით."); 
+      console.error("AI Error:", e);
+      setError("AI-მ ვერ ამოიცნო საკვები. სცადეთ უფრო მკაფიოდ ჩაწერა."); 
     } finally { 
       setLoading(false); 
     }
@@ -220,10 +221,9 @@ export default function App() {
         </div>
       </header>
 
-      {/* Main Content Area */}
+      {/* Main Content */}
       <main className="flex-1 px-6 pt-8 pb-32 overflow-y-auto scrollbar-hide">
         
-        {/* TRACKER VIEW */}
         {activeTab === 'tracker' && (
           <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4">
             <div className="bg-white rounded-[2.5rem] p-7 border border-slate-100 shadow-sm">
@@ -232,7 +232,7 @@ export default function App() {
                 value={input} 
                 onChange={(e) => setInput(e.target.value)} 
                 placeholder="მაგ: 2 ნაჭერი მწვადი, 200გრ პური, 1 კოვზი მაიონეზი..." 
-                className="w-full p-5 bg-slate-50 border-none rounded-[1.8rem] focus:ring-2 focus:ring-emerald-500/10 text-sm min-h-[110px] outline-none placeholder:text-slate-300 resize-none font-medium leading-relaxed" 
+                className="w-full p-5 bg-slate-50 border-none rounded-[1.8rem] focus:ring-2 focus:ring-emerald-500/10 text-sm min-h-[110px] outline-none placeholder:text-slate-300 resize-none font-medium leading-relaxed shadow-inner" 
               />
               <div className="flex gap-3 mt-4">
                 <button onClick={() => processAI(input)} disabled={loading || !input.trim()} className="flex-[2] bg-slate-900 text-white font-bold py-4.5 rounded-2xl flex items-center justify-center gap-2 shadow-lg active:scale-95 transition-all">
@@ -267,7 +267,6 @@ export default function App() {
           </div>
         )}
 
-        {/* HUB VIEW */}
         {activeTab === 'recipes' && (
           <div className="space-y-8 animate-in fade-in">
             <div className="bg-white p-6 rounded-[2.5rem] shadow-sm border border-slate-100">
@@ -284,7 +283,6 @@ export default function App() {
           </div>
         )}
 
-        {/* PROGRESS VIEW */}
         {activeTab === 'stats' && (
           <div className="space-y-8 animate-in fade-in">
             <div className="bg-slate-900 rounded-[2.5rem] p-8 text-white shadow-2xl relative overflow-hidden">
