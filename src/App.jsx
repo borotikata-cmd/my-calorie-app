@@ -14,7 +14,7 @@ import {
   ChevronRight, TrendingUp, Zap, Calendar, Heart, Share2
 } from 'lucide-react';
 
-// --- ⚙️ კონფიგურაცია (შენი მონაცემები) ---
+// --- ⚙️ კონფიგურაცია ---
 const firebaseConfig = {
   apiKey: "AIzaSyCt-vdljggQbtgtORhQfdXPou0FSWUZNLM",
   authDomain: "caloriehub-629aa.firebaseapp.com",
@@ -25,7 +25,8 @@ const firebaseConfig = {
   measurementId: "G-Q2CNRK16ET"
 };
 
-const GEMINI_API_KEY = "AIzaSyAdSzDqKf73a9fzI94UpmeOTJTrnJHfWos";
+// API Key handled by the environment
+const apiKey = ""; 
 
 // Firebase ინიციალიზაცია
 const app = initializeApp(firebaseConfig);
@@ -71,17 +72,16 @@ const RECIPE_DATABASE = [
     image: "https://images.unsplash.com/photo-1476718406336-bb5a9690ee2a?w=500"
   },
   {
-    id: 7, name: "ბერძნული სალათი", calories: 210, time: "10 წთ", category: "წასახემსებელი", budget: "საშუალო", cuisine: "ბერძნული",
+    id: 7, name: "ბერძნული სასათი", calories: 210, time: "10 წთ", category: "წასახემსებელი", budget: "საშუალო", cuisine: "ბერძნული",
     ingredients: ["პომიდორი", "კიტრი", "ფეტა", "ზეთისხილი", "ზეითუნის ზეთი"],
     preparation: ["დაჭერით ბოსტნეული მსხვილად", "დაადეთ ფეტას ნაჭერი", "მოასხით ზეთი და მოაყარეთ ორეგანო"],
     image: "https://images.unsplash.com/photo-1540189549336-e6e99c3679fe?w=500"
   }
 ];
 
-// --- მთავარი აპლიკაცია ---
 export default function App() {
   const [user, setUser] = useState(null);
-  const [activeTab, setActiveTab] = useState('tracker'); // tracker, recipes, stats
+  const [activeTab, setActiveTab] = useState('tracker'); 
   const [selectedRecipe, setSelectedRecipe] = useState(null);
   const [input, setInput] = useState('');
   const [history, setHistory] = useState([]);
@@ -137,26 +137,45 @@ export default function App() {
     });
   }, [history]);
 
-  // 3. AI პროცესორი (ტექსტი და ფოტო)
+  // 3. AI პროცესორი (ექსპონენციალური უკანდახევით)
   const processAI = async (text, base64 = null) => {
     if (!user) return;
-    setLoading(true); setError(null);
-    try {
-      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${GEMINI_API_KEY}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          contents: [{ parts: [{ text: text || "დაითვალე კალორიები ამ ფოტოზე არსებული საკვებისთვის (1 პორცია)." }, ...(base64 ? [{ inlineData: { mimeType: "image/jpeg", data: base64 } }] : [])] }],
-          systemInstruction: { parts: [{ text: "Expert Dietitian. Identify food and estimate calories. Return ONLY JSON: { \"name\": \"საკვების დასახელება\", \"calories\": number }." }] },
-          generationConfig: { responseMimeType: "application/json" }
-        })
-      });
-      const data = await response.json();
-      const res = JSON.parse(data.candidates[0].content.parts[0].text);
-      await addDoc(collection(db, 'users', user.uid, 'history'), { ...res, timestamp: Date.now() });
-      setInput('');
-    } catch (e) { setError("კავშირი ვერ დამყარდა AI-სთან."); }
-    finally { setLoading(false); }
+    setLoading(true);
+    setError(null);
+
+    const callAI = async (retries = 0) => {
+      try {
+        const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            contents: [{ parts: [{ text: text || "დაითვალე კალორიები ამ ფოტოზე არსებული საკვებისთვის (1 პორცია)." }, ...(base64 ? [{ inlineData: { mimeType: "image/jpeg", data: base64 } }] : [])] }],
+            systemInstruction: { parts: [{ text: "Expert Dietitian. Identify food and estimate calories. Return ONLY JSON: { \"name\": \"საკვების დასახელება\", \"calories\": number }." }] },
+            generationConfig: { responseMimeType: "application/json" }
+          })
+        });
+
+        if (!response.ok) throw new Error("Network error");
+
+        const data = await response.json();
+        const resText = data.candidates?.[0]?.content?.parts?.[0]?.text;
+        if (!resText) throw new Error("Empty response");
+        
+        const res = JSON.parse(resText);
+        await addDoc(collection(db, 'users', user.uid, 'history'), { ...res, timestamp: Date.now() });
+        setInput('');
+      } catch (e) {
+        if (retries < 5) {
+          const delay = Math.pow(2, retries) * 1000;
+          await new Promise(res => setTimeout(res, delay));
+          return callAI(retries + 1);
+        }
+        setError("AI-სთან კავშირი ვერ დამყარდა 5 მცდელობის შემდეგ.");
+      }
+    };
+
+    await callAI();
+    setLoading(false);
   };
 
   const deleteItem = async (id) => {
@@ -353,7 +372,7 @@ export default function App() {
           </div>
           <div className="h-2.5 w-full bg-slate-800 rounded-full overflow-hidden relative z-10">
             <div 
-              className={`h-full transition-all duration-1000 ease-out rounded-full ${totalToday > dailyGoal ? 'bg-orange-500 shadow-[0_0_20px_rgba(249,115,22,0.4)]' : 'bg-emerald-500 shadow-[0_0_20px_rgba(16,185,129,0.4)]'}`} 
+              className={`h-full transition-all duration-1000 ease-out rounded-full ${totalToday > dailyGoal ? 'bg-orange-500 shadow-[0_0_20px_rgba(249,115,22,0.4)]' : 'bg-emerald-500 shadow-[0_0_10px_rgba(16,185,129,0.4)]'}`} 
               style={{ width: `${progressPercent}%` }} 
             />
           </div>
@@ -402,8 +421,8 @@ export default function App() {
                 <span className="text-[11px] font-black text-emerald-500 uppercase tracking-[0.3em] border-b-2 border-emerald-50 pb-1">{selectedRecipe.cuisine} სამზარეულო</span>
                 <h1 className="text-4xl font-black text-slate-800 leading-tight mt-6 mb-8">{selectedRecipe.name}</h1>
                 <div className="flex gap-5 justify-center">
-                  <div className="bg-slate-50 p-6 rounded-[2.5rem] flex-1 text-center border border-slate-50"><Flame className="w-5 h-5 mx-auto mb-3 text-orange-400" /><p className="font-black text-2xl text-slate-700 leading-none">{selectedRecipe.calories}</p><p className="text-[10px] text-slate-400 uppercase font-black mt-2 tracking-widest">კკალ</p></div>
-                  <div className="bg-slate-50 p-6 rounded-[2.5rem] flex-1 text-center border border-slate-50"><Clock className="w-5 h-5 mx-auto mb-3 text-blue-400" /><p className="font-black text-2xl text-slate-700 leading-none">{selectedRecipe.time}</p><p className="text-[10px] text-slate-400 uppercase font-black mt-2 tracking-widest">დრო</p></div>
+                  <div className="bg-slate-50 p-6 rounded-[2.5rem] flex-1 text-center border border-slate-100"><Flame className="w-5 h-5 mx-auto mb-3 text-orange-400" /><p className="font-black text-2xl text-slate-700 leading-none">{selectedRecipe.calories}</p><p className="text-[10px] text-slate-400 uppercase font-black mt-2 tracking-widest">კკალ</p></div>
+                  <div className="bg-slate-50 p-6 rounded-[2.5rem] flex-1 text-center border border-slate-100"><Clock className="w-5 h-5 mx-auto mb-3 text-blue-400" /><p className="font-black text-2xl text-slate-700 leading-none">{selectedRecipe.time}</p><p className="text-[10px] text-slate-400 uppercase font-black mt-2 tracking-widest">დრო</p></div>
                 </div>
              </div>
 
