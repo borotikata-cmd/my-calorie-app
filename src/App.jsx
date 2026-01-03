@@ -25,7 +25,8 @@ const firebaseConfig = {
   measurementId: "G-Q2CNRK16ET"
 };
 
-// სისტემის API გასაღები ავტომატურად მიეწოდება გარემოს მიერ
+// სისტემის API გასაღები ავტომატურად მიეწოდება გარემოს მიერ. 
+// Vercel-ზე დეპლოისას აქ ჩასვით თქვენი პირადი API Key.
 const GEMINI_API_KEY = "";
 
 const app = initializeApp(firebaseConfig);
@@ -36,7 +37,7 @@ const appId = typeof __app_id !== 'undefined' ? __app_id : 'calorie-tracker-pro-
 // --- 🥗 ლოკალური რეცეპტების ბაზა ---
 const LOCAL_RECIPES = [
   { id: 'r1', name: "ხინკალი (დიეტური, 1 ცალი)", calories: 75, time: "40 წთ", cuisine: "ქართული", budget: "დაბალი", ingredients: ["საქონლის ხორცი", "ფქვილი", "ხახვი"], preparation: ["მოზილეთ ცომი", "მოამზადეთ ფარში", "მოხარშეთ"], image: "https://images.unsplash.com/photo-1599307734173-97992c68600d?w=500" },
-  { id: 'r2', name: "ქათმის სასალათი მაწვნით", calories: 220, time: "15 წთ", cuisine: "ჯანსაღი", budget: "საშუალო", ingredients: ["ქათმის ფილე", "მაწონი", "მწვანილი"], preparation: ["მოხარშეთ ფილე", "დაჭერით", "შეურიეთ მაწონს"], image: "https://images.unsplash.com/photo-1512621776951-a57141f2eefd?w=500" },
+  { id: 'r2', name: "ქათმის სალათი მაწვნით", calories: 220, time: "15 წთ", cuisine: "ჯანსაღი", budget: "საშუალო", ingredients: ["ქათმის ფილე", "მაწონი", "მწვანილი"], preparation: ["მოხარშეთ ფილე", "დაჭერით", "შეურიეთ მაწონს"], image: "https://images.unsplash.com/photo-1512621776951-a57141f2eefd?w=500" },
   { id: 'r3', name: "ორაგული ბოსტნეულით", calories: 350, time: "25 წთ", cuisine: "ევროპული", budget: "მაღალი", ingredients: ["ორაგული", "ლიმონი", "ბროკოლი", "ზეითუნის ზეთი"], preparation: ["გაასუფთავეთ ორაგული", "მოხარშეთ ბროკოლი", "შეწვით გრილზე"], image: "https://images.unsplash.com/photo-1467003909585-2f8a72700288?w=500" }
 ];
 
@@ -87,7 +88,7 @@ export default function App() {
   const [error, setError] = useState(null);
   const fileInputRef = useRef(null);
 
-  // 1. ავტორიზაციის მართვა - გამოსწორებული ტოკენის შეცდომა
+  // 1. ავტორიზაციის მართვა
   useEffect(() => {
     const initAuth = async () => {
       try {
@@ -95,14 +96,13 @@ export default function App() {
           try {
             await signInWithCustomToken(auth, __initial_auth_token);
           } catch (tokenErr) {
-            console.warn("Token mismatch or error, falling back to anonymous auth.");
             await signInAnonymously(auth);
           }
         } else {
           await signInAnonymously(auth);
         }
       } catch (err) {
-        console.error("Auth initialization failed:", err);
+        console.error("Auth error:", err);
       }
     };
     initAuth();
@@ -110,7 +110,7 @@ export default function App() {
     return () => unsubscribe();
   }, []);
 
-  // 2. Firestore მონაცემების სინქრონიზაცია (Rule 3 - მხოლოდ ავტორიზაციის შემდეგ)
+  // 2. მონაცემების სინქრონიზაცია
   useEffect(() => {
     if (!user) return;
 
@@ -123,7 +123,6 @@ export default function App() {
       setHistory(items.sort((a,b) => (b.timestamp || 0) - (a.timestamp || 0)));
       setLoading(false);
     }, (err) => {
-      console.error("Firestore error:", err);
       setError("მონაცემების წაკითხვის შეცდომა.");
     });
 
@@ -141,34 +140,49 @@ export default function App() {
     return { todayTotal, last7Days };
   }, [history]);
 
+  // 3. AI პროცესორი გამოსწორებული ლოგიკით და Retry მექანიზმით
   const processAI = async (text, base64 = null) => {
     if (!user || (!text && !base64)) return;
     setLoading(true); setError(null);
-    try {
-      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${GEMINI_API_KEY}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          contents: [{ parts: [{ text: text || "Identify the food." }, ...(base64 ? [{ inlineData: { mimeType: "image/jpeg", data: base64 } }] : [])] }],
-          systemInstruction: { parts: [{ text: "Experts Dietitian. You will be given a list of food items or a single dish. Calculate the TOTAL calories for all items combined. Identify the dish name. Return JSON ONLY: { \"name\": \"კერძის სახელი\", \"calories\": ჯამური_რიცხვი, \"ingredients\": [\"დეტალური სია რაოდენობებით\"], \"preparation\": [\"ნაბიჯები თუ საჭიროა\"], \"time\": \"წუთები\" }. Use Georgian language for values. Be lenient with typos." }] },
-          generationConfig: { responseMimeType: "application/json" }
-        })
-      });
-      const data = await response.json();
-      
-      if (!data.candidates || data.candidates.length === 0) {
-        throw new Error("AI ვერ პოულობს საკვებს.");
-      }
 
-      let resText = data.candidates[0].content.parts[0].text;
-      resText = resText.replace(/```json/g, '').replace(/```/g, '').trim();
-      const res = JSON.parse(resText);
-      
+    const fetchWithRetry = async (retries = 5, delay = 1000) => {
+      try {
+        const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${GEMINI_API_KEY}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            contents: [{ parts: [{ text: text || "Identify the food." }, ...(base64 ? [{ inlineData: { mimeType: "image/jpeg", data: base64 } }] : [])] }],
+            systemInstruction: { 
+              parts: [{ text: "შენ ხარ პროფესიონალი ქართველი დიეტოლოგი. დავალება: მომხმარებელმა შეიძლება მოგაწოდოს პროდუქტების სია (მაგ: 2 ნაჭერი ხორცი, პური, მაიონეზი). შენ უნდა დაითვალო თითოეულის კალორია და დააბრუნო მათი ჯამი. იყავი მაქსიმალურად მიმტევებელი შეცდომების (typos) მიმართ. დააბრუნე პასუხი მხოლოდ JSON ფორმატში: { \"name\": \"კერძის_სახელი\", \"calories\": ჯამური_რიცხვი, \"ingredients\": [\"დეტალური_სია\"], \"preparation\": [\"ნაბიჯები\"], \"time\": \"წუთები\" }. გამოიყენე მხოლოდ ქართული ენა." }] 
+            },
+            generationConfig: { responseMimeType: "application/json" }
+          })
+        });
+
+        if (!response.ok) throw new Error("Network error");
+        
+        const data = await response.json();
+        if (!data.candidates?.[0]?.content?.parts?.[0]?.text) throw new Error("Invalid response");
+
+        let resText = data.candidates[0].content.parts[0].text;
+        resText = resText.replace(/```json/g, '').replace(/```/g, '').trim();
+        return JSON.parse(resText);
+      } catch (e) {
+        if (retries > 0) {
+          await new Promise(res => setTimeout(res, delay));
+          return fetchWithRetry(retries - 1, delay * 2);
+        }
+        throw e;
+      }
+    };
+
+    try {
+      const res = await fetchWithRetry();
       await addDoc(collection(db, 'artifacts', appId, 'users', user.uid, 'history'), { ...res, timestamp: Date.now() });
       setInput('');
     } catch (e) { 
-      console.error("AI Error:", e);
-      setError("AI-მ ვერ ამოიცნო საკვები. სცადეთ სხვაგვარად ჩაწერა."); 
+      console.error("AI final error:", e);
+      setError("AI-მ ვერ დაამუშავა ინფორმაცია. სცადეთ მოგვიანებით."); 
     } finally { 
       setLoading(false); 
     }
@@ -206,9 +220,10 @@ export default function App() {
         </div>
       </header>
 
-      {/* Main Content */}
+      {/* Main Content Area */}
       <main className="flex-1 px-6 pt-8 pb-32 overflow-y-auto scrollbar-hide">
         
+        {/* TRACKER VIEW */}
         {activeTab === 'tracker' && (
           <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4">
             <div className="bg-white rounded-[2.5rem] p-7 border border-slate-100 shadow-sm">
@@ -252,6 +267,7 @@ export default function App() {
           </div>
         )}
 
+        {/* HUB VIEW */}
         {activeTab === 'recipes' && (
           <div className="space-y-8 animate-in fade-in">
             <div className="bg-white p-6 rounded-[2.5rem] shadow-sm border border-slate-100">
@@ -268,6 +284,7 @@ export default function App() {
           </div>
         )}
 
+        {/* PROGRESS VIEW */}
         {activeTab === 'stats' && (
           <div className="space-y-8 animate-in fade-in">
             <div className="bg-slate-900 rounded-[2.5rem] p-8 text-white shadow-2xl relative overflow-hidden">
