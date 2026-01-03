@@ -136,8 +136,8 @@ export default function App() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          contents: [{ parts: [{ text: text || "Identify the food in the image or text." }, ...(base64 ? [{ inlineData: { mimeType: "image/jpeg", data: base64 } }] : [])] }],
-          systemInstruction: { parts: [{ text: "Experts Dietitian. You will be given a list of food items or a single dish. Calculate the TOTAL calories for all items combined. Identify the dish name. Return JSON ONLY: { \"name\": \"კერძის სახელი\", \"calories\": ჯამური_რიცხვი, \"ingredients\": [\"დეტალური სია რაოდენობებით\"], \"preparation\": [\"მომზადების ნაბიჯები თუ საჭიროა\"], \"time\": \"წუთები\" }. Use Georgian language for values." }] },
+          contents: [{ parts: [{ text: text || "Identify the food." }, ...(base64 ? [{ inlineData: { mimeType: "image/jpeg", data: base64 } }] : [])] }],
+          systemInstruction: { parts: [{ text: "შენ ხარ პროფესიონალი ქართველი დიეტოლოგი. იყავი მაქსიმალურად მიმტევებელი შეცდომების მიმართ (typos). თუ მომხმარებელმა სიტყვა არასწორად დაწერა, მიხვდი რა იგულისხმა. დაითვალე ჯამური კალორიები. დააბრუნე JSON ფორმატში: { \"name\": \"კერძის სახელი\", \"calories\": ჯამური_კალორია_რიცხვი, \"ingredients\": [\"დეტალური სია რაოდენობებით\"], \"preparation\": [\"ნაბიჯები თუ საჭიროა\"], \"time\": \"მომზადების დრო\" }. გამოიყენე მხოლოდ ქართული ენა პასუხებისთვის." }] },
           generationConfig: { responseMimeType: "application/json" }
         })
       });
@@ -147,7 +147,11 @@ export default function App() {
         throw new Error("AI ვერ პოულობს საკვებს.");
       }
 
-      const resText = data.candidates[0].content.parts[0].text;
+      let resText = data.candidates[0].content.parts[0].text;
+      
+      // JSON-ის გასუფთავება (ზოგჯერ AI ამატებს ```json ბლოკებს)
+      resText = resText.replace(/```json/g, '').replace(/```/g, '').trim();
+      
       const res = JSON.parse(resText);
       
       await addDoc(collection(db, 'artifacts', appId, 'users', user.uid, 'history'), { ...res, timestamp: Date.now() });
