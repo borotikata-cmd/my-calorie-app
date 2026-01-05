@@ -26,7 +26,7 @@ const firebaseConfig = {
   measurementId: "G-Q2CNRK16ET"
 };
 
-// Gemini API Key - Vercel-ზე მუშაობისთვის პირდაპირ ჩაწერილია
+// Gemini API Key - მუდმივი და სტაბილური მუშაობისთვის
 const GEMINI_API_KEY = "AIzaSyAdSzDqKf73a9fzI94UpmeOTJTrnJHfWos";
 
 const firebaseApp = initializeApp(firebaseConfig);
@@ -34,11 +34,77 @@ const auth = getAuth(firebaseApp);
 const db = getFirestore(firebaseApp);
 const appId = typeof __app_id !== 'undefined' ? __app_id : 'calorie-tracker-pro-v1';
 
-// --- 🥗 ლოკალური რეცეპტები (Fallback) ---
+// --- 🥗 Fallback რეცეპტები ---
 const LOCAL_RECIPES = [
   { id: 'r1', name: "ხინკალი (დიეტური)", calories: 75, time: "40 წთ", cuisine: "ქართული", budget: "დაბალი", ingredients: ["საქონლის ხორცი", "ფქვილი", "ხახვი"], preparation: ["მოზილეთ ცომი", "მოამზადეთ ფარში", "მოხარშეთ"], image: "https://images.unsplash.com/photo-1599307734173-97992c68600d?w=500" },
   { id: 'r2', name: "ქათმის სალათი მაწვნით", calories: 220, time: "15 წთ", cuisine: "ჯანსაღი", budget: "საშუალო", ingredients: ["ქათმის ფილე", "მაწონი", "მწვანილი"], preparation: ["მოხარშეთ ფილე", "დაჭერით", "შეურიეთ მაწონს"], image: "https://images.unsplash.com/photo-1512621776951-a57141f2eefd?w=500" }
 ];
+
+// გამოყოფილი კომპონენტი კლავიატურის ფოკუსის შესანარჩუნებლად
+const TrackerInput = memo(({ onProcess, loading, aiStatus, error }) => {
+  const [text, setText] = useState('');
+  const fileRef = useRef(null);
+
+  return (
+    <div className="bg-white rounded-[3.5rem] p-10 border border-slate-100 shadow-sm relative">
+      <div className="flex items-center gap-3 mb-8">
+        <div className="w-10 h-10 bg-emerald-50 rounded-2xl flex items-center justify-center shadow-inner">
+          <Zap className="w-5 h-5 text-emerald-600" />
+        </div>
+        <h3 className="text-sm font-black text-slate-800 uppercase tracking-[0.2em]">რა მიირთვით?</h3>
+      </div>
+      
+      <textarea 
+        value={text} 
+        onChange={(e) => setText(e.target.value)} 
+        placeholder="მაგ: 2 ნაჭერი მწვადი, 200გრ პური, 1 კოვზი მაიონეზი..." 
+        className="w-full p-8 bg-slate-50 border-none rounded-[2.5rem] focus:ring-4 focus:ring-emerald-500/5 text-base min-h-[220px] outline-none placeholder:text-slate-300 resize-none font-medium leading-relaxed shadow-inner transition-all" 
+      />
+      
+      <div className="flex gap-5 mt-8">
+        <button 
+          onClick={() => { onProcess(text); setText(''); }} 
+          disabled={loading || !text.trim()} 
+          className="flex-[3] bg-slate-900 text-white font-black py-6 rounded-[2rem] flex flex-col items-center justify-center gap-2 shadow-2xl active:scale-95 transition-all disabled:opacity-50"
+        >
+          {loading ? <Loader2 className="animate-spin w-6 h-6" /> : <Calculator className="w-6 h-6" />}
+          <span className="text-[11px] uppercase tracking-[0.25em]">დაანგარიშება</span>
+        </button>
+        <button 
+          onClick={() => fileRef.current.click()} 
+          className="flex-1 bg-emerald-50 text-emerald-600 rounded-[2rem] border border-emerald-100 flex items-center justify-center active:scale-95 shadow-sm"
+        >
+          <Camera className="w-8 h-8" />
+          <input 
+            type="file" 
+            hidden 
+            ref={fileRef} 
+            accept="image/*" 
+            onChange={(e) => {
+              const r = new FileReader();
+              r.onloadend = () => onProcess(null, r.result.split(',')[1]);
+              r.readAsDataURL(e.target.files[0]);
+            }} 
+          />
+        </button>
+      </div>
+      
+      {aiStatus && (
+        <div className="mt-6 py-4 px-6 bg-emerald-50 rounded-full border border-emerald-100 flex items-center justify-center gap-3 animate-pulse">
+           <Sparkles className="w-4 h-4 text-emerald-600" />
+           <p className="text-[10px] text-emerald-600 font-black uppercase tracking-widest">{aiStatus}</p>
+        </div>
+      )}
+      
+      {error && (
+        <div className="mt-6 p-6 bg-red-50 rounded-[2.5rem] border border-red-100 flex items-start gap-4">
+          <AlertCircle className="w-6 h-6 text-red-500 shrink-0 mt-0.5" />
+          <p className="text-xs text-red-600 font-bold leading-relaxed uppercase tracking-tighter">{error}</p>
+        </div>
+      )}
+    </div>
+  );
+});
 
 const RecipeCard = memo(({ recipe, onSelect, onAdd }) => (
   <div className="bg-white rounded-[2.5rem] border border-slate-100 shadow-sm overflow-hidden flex flex-col group transition-all active:scale-[0.98]">
@@ -61,7 +127,7 @@ const RecipeCard = memo(({ recipe, onSelect, onAdd }) => (
         </div>
       </div>
       <div className="flex gap-3">
-        <button onClick={() => onSelect(recipe)} className="flex-1 bg-slate-50 text-slate-600 py-3.5 rounded-2xl font-bold text-[11px] uppercase tracking-widest active:bg-slate-200 transition-colors">დეტალები</button>
+        <button onClick={() => onSelect(recipe)} className="flex-1 bg-slate-50 text-slate-600 py-3.5 rounded-2xl font-bold text-[11px] uppercase tracking-widest active:bg-slate-200">დეტალები</button>
         <button onClick={() => onAdd(recipe)} className="flex-1 bg-emerald-500 text-white py-3.5 rounded-2xl font-bold text-[11px] uppercase tracking-widest active:scale-95 shadow-lg shadow-emerald-100 transition-all">დამატება</button>
       </div>
     </div>
@@ -72,17 +138,15 @@ export default function App() {
   const [user, setUser] = useState(null);
   const [activeTab, setActiveTab] = useState('tracker'); 
   const [selectedRecipe, setSelectedRecipe] = useState(null);
-  const [input, setInput] = useState('');
   const [history, setHistory] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [aiLoading, setAiLoading] = useState(false);
   const [aiStatus, setAiStatus] = useState('');
   const [dailyGoal, setDailyGoal] = useState(2000);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [error, setError] = useState(null);
-  const fileInputRef = useRef(null);
 
-  // 1. ავტორიზაცია - სტაბილური ლოგიკა
   useEffect(() => {
     const initAuth = async () => {
       try {
@@ -96,7 +160,7 @@ export default function App() {
           await signInAnonymously(auth);
         }
       } catch (err) {
-        console.error("Auth error:", err);
+        console.error("Auth initialization failed", err);
       }
     };
     initAuth();
@@ -107,10 +171,8 @@ export default function App() {
     return () => unsubscribe();
   }, []);
 
-  // 2. მონაცემების სინქრონიზაცია
   useEffect(() => {
     if (!user) return;
-
     const profileRef = doc(db, 'artifacts', appId, 'users', user.uid, 'settings', 'profile');
     getDoc(profileRef).then(s => s.exists() && setDailyGoal(s.data().dailyGoal || 2000));
 
@@ -118,10 +180,7 @@ export default function App() {
     const unsubHistory = onSnapshot(historyCol, (s) => {
       const items = s.docs.map(d => ({ id: d.id, ...d.data() }));
       setHistory(items.sort((a,b) => (b.timestamp || 0) - (a.timestamp || 0)));
-    }, (err) => {
-      console.error("Firestore snapshot error:", err);
     });
-
     return () => unsubHistory();
   }, [user]);
 
@@ -136,52 +195,40 @@ export default function App() {
     return { todayTotal, last7Days };
   }, [history]);
 
-  // 3. AI პროცესორი - FIX: Gemini 1.5 Flash (სტაბილური v1 API-სთვის)
-  const processAI = async (text, base64 = null) => {
+  const processAI = useCallback(async (text, base64 = null) => {
     if (!user || (!text && !base64)) return;
-    setLoading(true); 
+    setAiLoading(true); 
     setError(null);
     setAiStatus('მიმდინარეობს ანალიზი...');
 
-    const promptText = `Task: Nutrition Specialist. Analyze the input.
-    Input: ${text || "Image provided"}
-    Requirement: Identify each food item, calculate calories individually, and sum them up.
-    Output: ONLY a raw JSON object with these keys:
+    const promptText = `Expert Dietitian. Analyze food items. Return ONLY JSON:
     {
       "name": "Meal name in Georgian",
-      "calories": total_number,
-      "ingredients": ["Detailed list with calories"],
-      "preparation": ["How calculation was made"],
-      "time": "Estimated time"
+      "calories": total_sum_number,
+      "ingredients": ["Item (Quantity) - kcal"],
+      "preparation": ["How it was calculated"],
+      "time": "mins"
     }
-    Language: Georgian. No conversational text.`;
+    Input: ${text || "Image provided"}. Use Georgian language.`;
 
     try {
-      // FIX: ვიყენებთ v1 ენდპოინტს და gemini-1.5-flash მოდელს
       const response = await fetch(`https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key=${GEMINI_API_KEY}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          contents: [{ 
-            parts: [
-              { text: promptText },
-              ...(base64 ? [{ inlineData: { mimeType: "image/jpeg", data: base64 } }] : [])
-            ] 
-          }]
+          contents: [{ parts: [{ text: promptText }, ...(base64 ? [{ inlineData: { mimeType: "image/jpeg", data: base64 } }] : [])] }]
         })
       });
 
       if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.error?.message || `კავშირის შეცდომა: ${response.status}`);
+        const errData = await response.json().catch(() => ({}));
+        throw new Error(errData.error?.message || "კავშირის შეცდომა");
       }
       
       const data = await response.json();
       const rawText = data.candidates?.[0]?.content?.parts?.[0]?.text;
-      
-      if (!rawText) throw new Error("AI-მ პასუხი ვერ დააბრუნა.");
+      if (!rawText) throw new Error("AI პასუხი ცარიელია");
 
-      // JSON-ის გასუფთავება ზედმეტი მარკდაუნისგან
       const cleanedJson = rawText.replace(/```json/g, '').replace(/```/g, '').trim();
       const result = JSON.parse(cleanedJson);
       
@@ -191,20 +238,14 @@ export default function App() {
       });
       
       setAiStatus('წარმატებით დაემატა!');
-      setInput('');
       setTimeout(() => setAiStatus(''), 3000);
     } catch (e) { 
-      console.error("AI Error:", e);
-      setError(`შეცდომა: ${e.message}. სცადეთ მოგვიანებით.`); 
+      console.error("AI Failure:", e);
+      setError(`შეცდომა: ${e.message}`); 
     } finally { 
-      setLoading(false); 
+      setAiLoading(false); 
     }
-  };
-
-  // ⌨️ Keyboard Focus Fix: სტაბილური onChange დამმუშავებელი
-  const handleInputChange = useCallback((e) => {
-    setInput(e.target.value);
-  }, []);
+  }, [user]);
 
   if (loading && !user) return (
     <div className="h-screen flex flex-col items-center justify-center bg-white gap-8 text-emerald-500">
@@ -219,7 +260,7 @@ export default function App() {
       <header className="bg-white pt-16 pb-10 px-8 sticky top-0 z-40 border-b border-slate-100 rounded-b-[4rem] shadow-sm">
         <div className="flex justify-between items-center mb-10">
           <div className="flex items-center gap-6">
-            <div className="w-16 h-16 bg-emerald-500 rounded-[1.8rem] flex items-center justify-center text-white shadow-2xl shadow-emerald-100 transform -rotate-3 transition-transform">
+            <div className="w-16 h-16 bg-emerald-500 rounded-[1.8rem] flex items-center justify-center text-white shadow-2xl shadow-emerald-100">
               <Apple className="w-8 h-8" />
             </div>
             <div>
@@ -230,7 +271,7 @@ export default function App() {
           <button onClick={() => setIsSettingsOpen(true)} className="p-5 bg-slate-50 rounded-[1.4rem] text-slate-400 active:scale-90 transition-all border border-slate-100/50 hover:text-emerald-600"><Settings className="w-6 h-6" /></button>
         </div>
 
-        <div className="bg-slate-900 rounded-[3rem] p-8 text-white shadow-2xl relative overflow-hidden">
+        <div className="bg-slate-900 rounded-[3rem] p-8 text-white shadow-2xl relative overflow-hidden group">
           <div className="flex justify-between items-end mb-6 relative z-10">
             <div>
               <p className="text-[10px] font-bold text-slate-500 uppercase tracking-[0.3em] mb-3">დღევანდელი ჯამი</p>
@@ -247,9 +288,9 @@ export default function App() {
                <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest">მიზანი</p>
             </div>
           </div>
-          <div className="h-4 w-full bg-slate-800/80 rounded-full overflow-hidden relative z-10 border border-slate-700/50">
+          <div className="h-4 w-full bg-slate-800/80 rounded-full overflow-hidden relative z-10 border border-slate-700/50 p-1">
             <div 
-              className={`h-full transition-all duration-1000 ease-out rounded-full ${stats.todayTotal > dailyGoal ? 'bg-orange-500' : 'bg-emerald-500'}`} 
+              className={`h-full transition-all duration-1000 ease-out rounded-full ${stats.todayTotal > dailyGoal ? 'bg-orange-500 shadow-[0_0_20px_rgba(249,115,22,0.6)]' : 'bg-emerald-500 shadow-[0_0_25px_rgba(16,185,129,0.5)]'}`} 
               style={{ width: `${Math.min((stats.todayTotal / dailyGoal) * 100, 100)}%` }} 
             />
           </div>
@@ -257,55 +298,14 @@ export default function App() {
       </header>
 
       <main className="flex-1 px-8 pt-10 pb-40 overflow-y-auto scrollbar-hide overscroll-contain">
-        
         {activeTab === 'tracker' && (
           <div className="space-y-12">
-            {/* FIX: კლავიატურის პრობლემა - მოვხსენით ანიმაციური კლასები, რომლებიც ყოველ რენდერზე ცვლიდნენ DOM-ს */}
-            <div className="bg-white rounded-[3.5rem] p-10 border border-slate-100 shadow-sm relative">
-              <div className="flex items-center gap-3 mb-8">
-                 <div className="w-10 h-10 bg-emerald-50 rounded-2xl flex items-center justify-center shadow-inner"><Zap className="w-5 h-5 text-emerald-600" /></div>
-                 <h3 className="text-sm font-black text-slate-800 uppercase tracking-[0.2em]">რა მიირთვით?</h3>
-              </div>
-              
-              <textarea 
-                value={input} 
-                onChange={handleInputChange} 
-                placeholder="მაგ: 2 ნაჭერი მწვადი, 200გრ პური, 1 კოვზი მაიონეზი..." 
-                className="w-full p-8 bg-slate-50 border-none rounded-[2.5rem] focus:ring-4 focus:ring-emerald-500/5 text-base min-h-[220px] outline-none placeholder:text-slate-300 resize-none font-medium leading-relaxed shadow-inner transition-all" 
-              />
-              
-              <div className="flex gap-5 mt-8 relative z-10">
-                <button 
-                  onClick={() => processAI(input)} 
-                  disabled={loading || !input.trim()} 
-                  className="flex-[3] bg-slate-900 text-white font-black py-6 rounded-[2rem] flex flex-col items-center justify-center gap-2 shadow-2xl active:scale-95 transition-all disabled:opacity-50"
-                >
-                  {loading ? <Loader2 className="animate-spin w-6 h-6" /> : <Calculator className="w-6 h-6" />}
-                  <span className="text-[11px] uppercase tracking-[0.25em]">დაანგარიშება</span>
-                </button>
-                <button 
-                  onClick={() => fileInputRef.current.click()} 
-                  className="flex-1 bg-emerald-50 text-emerald-600 rounded-[2rem] border border-emerald-100 flex items-center justify-center active:scale-95 shadow-sm transition-all hover:bg-emerald-100"
-                >
-                  <Camera className="w-8 h-8" />
-                  <input type="file" hidden ref={fileInputRef} accept="image/*" onChange={(e) => { const r = new FileReader(); r.onloadend = () => processAI(null, r.result.split(',')[1]); r.readAsDataURL(e.target.files[0]); }} />
-                </button>
-              </div>
-              
-              {aiStatus && (
-                <div className="mt-6 py-4 px-6 bg-emerald-50 rounded-full border border-emerald-100 flex items-center justify-center gap-3 animate-pulse">
-                   <Sparkles className="w-4 h-4 text-emerald-600" />
-                   <p className="text-[10px] text-emerald-600 font-black uppercase tracking-widest">{aiStatus}</p>
-                </div>
-              )}
-              
-              {error && (
-                <div className="mt-6 p-6 bg-red-50 rounded-[2.5rem] border border-red-100 flex items-start gap-4">
-                  <AlertCircle className="w-6 h-6 text-red-500 shrink-0 mt-0.5" />
-                  <p className="text-xs text-red-600 font-bold leading-relaxed uppercase tracking-tighter">{error}</p>
-                </div>
-              )}
-            </div>
+            <TrackerInput 
+              onProcess={processAI} 
+              loading={aiLoading} 
+              aiStatus={aiStatus} 
+              error={error} 
+            />
 
             <div className="space-y-6">
               <div className="flex justify-between items-center px-4">
@@ -418,7 +418,6 @@ export default function App() {
                   <div className="bg-slate-50/80 p-8 rounded-[3.5rem] flex-1 border border-slate-100 shadow-inner"><Clock className="w-8 h-8 mx-auto mb-4 text-blue-500" /><p className="font-black text-4xl text-slate-800 tracking-tighter">{selectedRecipe.time || "5 წთ"}</p><p className="text-[11px] text-slate-400 uppercase font-black tracking-widest mt-3">დრო</p></div>
                 </div>
              </div>
-             
              <div className="space-y-16 pb-64">
                 {selectedRecipe.ingredients && (
                   <div>
@@ -433,7 +432,6 @@ export default function App() {
                     </div>
                   </div>
                 )}
-                
                 {selectedRecipe.preparation && (
                   <div>
                     <h3 className="flex items-center gap-5 text-[15px] font-black uppercase text-slate-800 mb-10 tracking-[0.3em] border-b-2 border-slate-50 pb-6"><Calculator className="w-6 h-6 text-emerald-500" /> დათვლის ლოგიკა</h3>
@@ -452,7 +450,6 @@ export default function App() {
         </div>
       )}
 
-      {/* Settings Modal */}
       {isSettingsOpen && (
         <div className="fixed inset-0 z-[110] flex items-end justify-center">
           <div className="absolute inset-0 bg-slate-900/90 backdrop-blur-2xl" onClick={() => setIsSettingsOpen(false)} />
