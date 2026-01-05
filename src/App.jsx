@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useMemo, memo } from 'react';
+import React, { useState, useEffect, useRef, useMemo, memo, useCallback } from 'react';
 import { initializeApp } from 'firebase/app';
 import { 
   getFirestore, collection, addDoc, onSnapshot, 
@@ -26,8 +26,7 @@ const firebaseConfig = {
   measurementId: "G-Q2CNRK16ET"
 };
 
-// Gemini API Key - საჯარო API-სთვის აუცილებელია სწორი გასაღები
-// შენიშვნა: Vercel-ზე მუშაობისთვის აქ პირდაპირ ჩავწერე თქვენი გასაღები.
+// Gemini API Key - Vercel-ზე მუშაობისთვის პირდაპირ ჩაწერილია
 const GEMINI_API_KEY = "AIzaSyAdSzDqKf73a9fzI94UpmeOTJTrnJHfWos";
 
 const firebaseApp = initializeApp(firebaseConfig);
@@ -62,8 +61,8 @@ const RecipeCard = memo(({ recipe, onSelect, onAdd }) => (
         </div>
       </div>
       <div className="flex gap-3">
-        <button onClick={() => onSelect(recipe)} className="flex-1 bg-slate-50 text-slate-600 py-3.5 rounded-2xl font-bold text-[11px] uppercase tracking-widest active:bg-slate-200">დეტალები</button>
-        <button onClick={() => onAdd(recipe)} className="flex-1 bg-emerald-500 text-white py-3.5 rounded-2xl font-bold text-[11px] uppercase tracking-widest active:scale-95 shadow-lg shadow-emerald-100">დამატება</button>
+        <button onClick={() => onSelect(recipe)} className="flex-1 bg-slate-50 text-slate-600 py-3.5 rounded-2xl font-bold text-[11px] uppercase tracking-widest active:bg-slate-200 transition-colors">დეტალები</button>
+        <button onClick={() => onAdd(recipe)} className="flex-1 bg-emerald-500 text-white py-3.5 rounded-2xl font-bold text-[11px] uppercase tracking-widest active:scale-95 shadow-lg shadow-emerald-100 transition-all">დამატება</button>
       </div>
     </div>
   </div>
@@ -119,6 +118,8 @@ export default function App() {
     const unsubHistory = onSnapshot(historyCol, (s) => {
       const items = s.docs.map(d => ({ id: d.id, ...d.data() }));
       setHistory(items.sort((a,b) => (b.timestamp || 0) - (a.timestamp || 0)));
+    }, (err) => {
+      console.error("Firestore snapshot error:", err);
     });
 
     return () => unsubHistory();
@@ -135,28 +136,29 @@ export default function App() {
     return { todayTotal, last7Days };
   }, [history]);
 
-  // 3. AI პროცესორი - FIX: Gemini 1.5 Flash (სტაბილური API-სთვის)
+  // 3. AI პროცესორი - FIX: Gemini 1.5 Flash (სტაბილური v1 API-სთვის)
   const processAI = async (text, base64 = null) => {
     if (!user || (!text && !base64)) return;
     setLoading(true); 
     setError(null);
     setAiStatus('მიმდინარეობს ანალიზი...');
 
-    const promptText = `შენ ხარ დიეტოლოგი. მომხმარებელი მოგაწვდის საკვების ჩამონათვალს (მაგ: "2 ნაჭერი მწვადი, პური"). 
-    ამოიცანი თითოეული, დაითვალე კალორიები ცალ-ცალკე და შეკრიბე.
-    დააბრუნე მკაცრად JSON ფორმატში, არანაირი ზედმეტი ტექსტი:
+    const promptText = `Task: Nutrition Specialist. Analyze the input.
+    Input: ${text || "Image provided"}
+    Requirement: Identify each food item, calculate calories individually, and sum them up.
+    Output: ONLY a raw JSON object with these keys:
     {
-      "name": "კერძის სახელი ქართულად",
-      "calories": ჯამური_რიცხვი,
-      "ingredients": ["პროდუქტი 1 - X კკალ", "პროდუქტი 2 - Y კკალ"],
-      "preparation": ["გამოთვლის ეტაპი 1", "ეტაპი 2"],
-      "time": "წუთები"
+      "name": "Meal name in Georgian",
+      "calories": total_number,
+      "ingredients": ["Detailed list with calories"],
+      "preparation": ["How calculation was made"],
+      "time": "Estimated time"
     }
-    გამოიყენე მხოლოდ ქართული ენა. Input: ${text || "image analysis"}`;
+    Language: Georgian. No conversational text.`;
 
     try {
-      // FIX: ვიყენებთ gemini-1.5-flash მოდელს Vercel-ის API კავშირისთვის
-      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${GEMINI_API_KEY}`, {
+      // FIX: ვიყენებთ v1 ენდპოინტს და gemini-1.5-flash მოდელს
+      const response = await fetch(`https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key=${GEMINI_API_KEY}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -170,8 +172,8 @@ export default function App() {
       });
 
       if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error?.message || "API Connection Failed");
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.error?.message || `კავშირის შეცდომა: ${response.status}`);
       }
       
       const data = await response.json();
@@ -179,6 +181,7 @@ export default function App() {
       
       if (!rawText) throw new Error("AI-მ პასუხი ვერ დააბრუნა.");
 
+      // JSON-ის გასუფთავება ზედმეტი მარკდაუნისგან
       const cleanedJson = rawText.replace(/```json/g, '').replace(/```/g, '').trim();
       const result = JSON.parse(cleanedJson);
       
@@ -198,21 +201,25 @@ export default function App() {
     }
   };
 
+  // ⌨️ Keyboard Focus Fix: სტაბილური onChange დამმუშავებელი
+  const handleInputChange = useCallback((e) => {
+    setInput(e.target.value);
+  }, []);
+
   if (loading && !user) return (
     <div className="h-screen flex flex-col items-center justify-center bg-white gap-8 text-emerald-500">
       <Loader2 className="animate-spin w-12 h-12 opacity-30" />
-      <p className="font-black text-[10px] uppercase tracking-[0.4em] animate-pulse">CalorieHub იტვირთება...</p>
+      <p className="font-black text-[10px] uppercase tracking-[0.4em] animate-pulse">იტვირთება...</p>
     </div>
   );
 
   return (
     <div className="min-h-screen bg-[#F8FAFC] text-slate-900 max-w-md mx-auto relative flex flex-col font-sans overflow-hidden shadow-2xl border-x border-slate-100">
       
-      {/* Header - No animations here to avoid re-mounting issues */}
       <header className="bg-white pt-16 pb-10 px-8 sticky top-0 z-40 border-b border-slate-100 rounded-b-[4rem] shadow-sm">
         <div className="flex justify-between items-center mb-10">
           <div className="flex items-center gap-6">
-            <div className="w-16 h-16 bg-emerald-500 rounded-[1.8rem] flex items-center justify-center text-white shadow-2xl shadow-emerald-100">
+            <div className="w-16 h-16 bg-emerald-500 rounded-[1.8rem] flex items-center justify-center text-white shadow-2xl shadow-emerald-100 transform -rotate-3 transition-transform">
               <Apple className="w-8 h-8" />
             </div>
             <div>
@@ -223,7 +230,6 @@ export default function App() {
           <button onClick={() => setIsSettingsOpen(true)} className="p-5 bg-slate-50 rounded-[1.4rem] text-slate-400 active:scale-90 transition-all border border-slate-100/50 hover:text-emerald-600"><Settings className="w-6 h-6" /></button>
         </div>
 
-        {/* Progress Card */}
         <div className="bg-slate-900 rounded-[3rem] p-8 text-white shadow-2xl relative overflow-hidden">
           <div className="flex justify-between items-end mb-6 relative z-10">
             <div>
@@ -250,24 +256,22 @@ export default function App() {
         </div>
       </header>
 
-      {/* Main Content Area */}
       <main className="flex-1 px-8 pt-10 pb-40 overflow-y-auto scrollbar-hide overscroll-contain">
         
         {activeTab === 'tracker' && (
           <div className="space-y-12">
-            {/* ⌨️ FIX: Keyboard closing bug - Removed Framer Motion-like animations during input focus */}
-            <div className="bg-white rounded-[3.5rem] p-10 border border-slate-100 shadow-sm relative overflow-hidden">
+            {/* FIX: კლავიატურის პრობლემა - მოვხსენით ანიმაციური კლასები, რომლებიც ყოველ რენდერზე ცვლიდნენ DOM-ს */}
+            <div className="bg-white rounded-[3.5rem] p-10 border border-slate-100 shadow-sm relative">
               <div className="flex items-center gap-3 mb-8">
                  <div className="w-10 h-10 bg-emerald-50 rounded-2xl flex items-center justify-center shadow-inner"><Zap className="w-5 h-5 text-emerald-600" /></div>
                  <h3 className="text-sm font-black text-slate-800 uppercase tracking-[0.2em]">რა მიირთვით?</h3>
               </div>
               
-              {/* Textarea remains focused now because parent isn't re-mounting with animations */}
               <textarea 
                 value={input} 
-                onChange={(e) => setInput(e.target.value)} 
+                onChange={handleInputChange} 
                 placeholder="მაგ: 2 ნაჭერი მწვადი, 200გრ პური, 1 კოვზი მაიონეზი..." 
-                className="w-full p-8 bg-slate-50 border-none rounded-[2.5rem] focus:ring-4 focus:ring-emerald-500/5 text-base min-h-[220px] outline-none placeholder:text-slate-300 resize-none font-medium leading-relaxed shadow-inner" 
+                className="w-full p-8 bg-slate-50 border-none rounded-[2.5rem] focus:ring-4 focus:ring-emerald-500/5 text-base min-h-[220px] outline-none placeholder:text-slate-300 resize-none font-medium leading-relaxed shadow-inner transition-all" 
               />
               
               <div className="flex gap-5 mt-8 relative z-10">
@@ -281,7 +285,7 @@ export default function App() {
                 </button>
                 <button 
                   onClick={() => fileInputRef.current.click()} 
-                  className="flex-1 bg-emerald-50 text-emerald-600 rounded-[2rem] border border-emerald-100 flex items-center justify-center active:scale-95 shadow-sm transition-all"
+                  className="flex-1 bg-emerald-50 text-emerald-600 rounded-[2rem] border border-emerald-100 flex items-center justify-center active:scale-95 shadow-sm transition-all hover:bg-emerald-100"
                 >
                   <Camera className="w-8 h-8" />
                   <input type="file" hidden ref={fileInputRef} accept="image/*" onChange={(e) => { const r = new FileReader(); r.onloadend = () => processAI(null, r.result.split(',')[1]); r.readAsDataURL(e.target.files[0]); }} />
@@ -303,7 +307,6 @@ export default function App() {
               )}
             </div>
 
-            {/* History Section */}
             <div className="space-y-6">
               <div className="flex justify-between items-center px-4">
                 <h3 className="text-[11px] font-black text-slate-400 uppercase tracking-[0.25em] flex items-center gap-3"><History className="w-4 h-4"/> დღევანდელი ისტორია</h3>
@@ -340,7 +343,7 @@ export default function App() {
         )}
 
         {activeTab === 'recipes' && (
-          <div className="space-y-12">
+          <div className="space-y-12 animate-in fade-in">
             <div className="bg-white p-8 rounded-[3.2rem] shadow-sm border border-slate-100 space-y-8">
               <div className="relative group">
                 <Search className="absolute left-7 top-1/2 -translate-y-1/2 text-slate-400 w-6 h-6 group-focus-within:text-emerald-500 transition-colors" />
@@ -356,14 +359,14 @@ export default function App() {
         )}
 
         {activeTab === 'stats' && (
-          <div className="space-y-12">
+          <div className="space-y-12 animate-in fade-in">
             <div className="bg-slate-900 rounded-[3.5rem] p-12 text-white shadow-2xl relative overflow-hidden">
               <h3 className="text-[12px] font-black uppercase tracking-[0.35em] mb-12 text-slate-500 relative z-10">ბოლო 7 დღე</h3>
               <div className="flex items-end justify-between h-56 gap-4 relative z-10">
                 {stats.last7Days.map((d, i) => (
                   <div key={i} className="flex-1 flex flex-col items-center gap-5">
                     <div className="w-full bg-slate-800/80 rounded-full relative h-40 overflow-hidden border border-slate-700/40 p-1">
-                      <div className="absolute bottom-0 left-0 right-0 bg-emerald-500 rounded-full transition-all duration-1000 ease-out" style={{ height: `${Math.min((d.total / dailyGoal) * 100, 100)}%` }} />
+                      <div className="absolute bottom-0 left-0 right-0 bg-emerald-500 rounded-full transition-all duration-1000 ease-out shadow-[0_0_25px_rgba(16,185,129,0.4)]" style={{ height: `${Math.min((d.total / dailyGoal) * 100, 100)}%` }} />
                     </div>
                     <span className="text-[11px] font-black text-slate-500 uppercase tracking-tighter">{d.day}</span>
                   </div>
@@ -372,13 +375,13 @@ export default function App() {
             </div>
             
             <div className="grid grid-cols-2 gap-8">
-               <div className="bg-white p-10 rounded-[3.2rem] border border-slate-100 text-center shadow-sm">
-                  <div className="w-14 h-14 bg-blue-50 rounded-2xl flex items-center justify-center mx-auto mb-5"><PieChart className="w-7 h-7 text-blue-500" /></div>
+               <div className="bg-white p-10 rounded-[3.2rem] border border-slate-100 text-center shadow-sm group hover:shadow-xl transition-all">
+                  <div className="w-14 h-14 bg-blue-50 rounded-2xl flex items-center justify-center mx-auto mb-5 transition-transform"><PieChart className="w-7 h-7 text-blue-500" /></div>
                   <p className="text-[11px] font-black text-slate-400 uppercase tracking-widest mb-2">საშუალო</p>
                   <p className="text-3xl font-black text-slate-800 tracking-tighter">{Math.round(stats.last7Days.reduce((acc, curr) => acc + curr.total, 0) / 7)}</p>
                </div>
-               <div className="bg-white p-10 rounded-[3.2rem] border border-slate-100 text-center shadow-sm">
-                  <div className="w-14 h-14 bg-orange-50 rounded-2xl flex items-center justify-center mx-auto mb-5"><Target className="w-7 h-7 text-orange-500" /></div>
+               <div className="bg-white p-10 rounded-[3.2rem] border border-slate-100 text-center shadow-sm group hover:shadow-xl transition-all">
+                  <div className="w-14 h-14 bg-orange-50 rounded-2xl flex items-center justify-center mx-auto mb-5 transition-transform"><Target className="w-7 h-7 text-orange-500" /></div>
                   <p className="text-[11px] font-black text-slate-400 uppercase tracking-widest mb-2">პიკი</p>
                   <p className="text-3xl font-black text-slate-800 tracking-tighter">{Math.max(...stats.last7Days.map(d => d.total))}</p>
                </div>
@@ -387,7 +390,6 @@ export default function App() {
         )}
       </main>
 
-      {/* Navigation */}
       <nav className="fixed bottom-12 left-1/2 -translate-x-1/2 w-[94%] max-w-[420px] bg-white/95 backdrop-blur-3xl border border-slate-100 rounded-[3.5rem] p-3 flex justify-between shadow-2xl z-50">
         {[ 
           { id: 'tracker', icon: Utensils, label: 'დღიური' }, 
@@ -401,14 +403,13 @@ export default function App() {
         ))}
       </nav>
 
-      {/* Detail Overlay */}
       {selectedRecipe && (
         <div className="fixed inset-0 z-[100] bg-white overflow-y-auto">
           <div className="relative h-[480px]">
             {selectedRecipe.image ? <img src={selectedRecipe.image} className="w-full h-full object-cover" alt="" /> : <div className="w-full h-full bg-slate-50 flex items-center justify-center text-slate-200"><ImageIcon className="w-28 h-28 opacity-10" /></div>}
             <button onClick={() => setSelectedRecipe(null)} className="absolute top-12 left-10 p-6 bg-white/95 backdrop-blur-md rounded-3xl shadow-2xl border border-slate-100 active:scale-90 transition-all"><ArrowLeft className="w-7 h-7 text-slate-800" /></button>
           </div>
-          <div className="p-12 -mt-32 bg-white rounded-t-[7rem] relative z-10 min-h-screen border-t border-slate-50">
+          <div className="p-12 -mt-32 bg-white rounded-t-[7rem] relative z-10 min-h-screen border-t border-slate-50 shadow-2xl">
              <div className="mb-16 text-center">
                 <div className="flex justify-center mb-8"><span className="px-8 py-3 bg-emerald-50 text-emerald-600 text-[12px] font-black uppercase tracking-[0.35em] rounded-full border border-emerald-100/50 shadow-sm">ანალიზის დეტალები</span></div>
                 <h1 className="text-4xl font-black text-slate-800 leading-[1.1] mb-12 mt-2 tracking-tight">{selectedRecipe.name}</h1>
@@ -439,7 +440,7 @@ export default function App() {
                     <div className="space-y-8">
                       {selectedRecipe.preparation.map((step, i) => (
                         <div key={i} className="flex gap-8 p-10 bg-slate-50/60 border-2 border-dashed border-slate-200 rounded-[3.5rem]">
-                          <div className="w-14 h-14 bg-slate-900 text-white rounded-[1.8rem] flex items-center justify-center text-lg font-black shrink-0">{i + 1}</div>
+                          <div className="w-14 h-14 bg-slate-900 text-white rounded-[1.8rem] flex items-center justify-center text-lg font-black shrink-0 shadow-2xl">{i + 1}</div>
                           <p className="text-lg text-slate-600 leading-[1.8] font-medium pt-2 italic">{step}</p>
                         </div>
                       ))}
@@ -456,7 +457,7 @@ export default function App() {
         <div className="fixed inset-0 z-[110] flex items-end justify-center">
           <div className="absolute inset-0 bg-slate-900/90 backdrop-blur-2xl" onClick={() => setIsSettingsOpen(false)} />
           <div className="relative bg-white w-full rounded-t-[6rem] p-16 animate-in slide-in-from-bottom duration-700 shadow-2xl">
-            <h2 className="text-3xl font-black mb-14 text-center text-slate-800 uppercase tracking-[0.2em]">დღიური მიზანი</h2>
+            <h2 className="text-3xl font-black mb-14 text-center text-slate-800 uppercase tracking-[0.2em]">მიზანი</h2>
             <div className="relative mb-20">
                 <input 
                   type="number" 
